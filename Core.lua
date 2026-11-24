@@ -3,7 +3,7 @@ local ADDON, ns = ...
 ns = ns or {}
 _G.Fettle = ns
 
-ns.VERSION = "0.8.0"
+ns.VERSION = "0.8.1"
 ns.ICON = "Interface\\AddOns\\Fettle\\Media\\icon"
 ns.ROLES = { "TANK", "HEALER", "MELEE", "RANGED", "CASTER", "BANK" }
 ns.ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", MELEE = "Melee DPS", RANGED = "Ranged DPS", CASTER = "Caster DPS", BANK = "Bank alt" }
@@ -90,6 +90,7 @@ ns.DEFAULT_SETTINGS = {
   hintsMail = true,
   hintsVendor = true,
   hintsBags = true,
+  deGear = true,
   receiveBugs = false,
   resetTicksOnLeave = true,  -- clear manual ticks when leaving a dungeon
   autoSuggest = false,       -- profession-based wish list suggestions (off: wishlist only)

@@ -119,8 +119,8 @@ function ns.ItemMeta(id, bag, slot)
     end
     local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
     if getInfo then
-      local _, _, _, _, minLvl = safe(getInfo, id)
-      m.minLvl = minLvl
+      local _, _, quality, _, minLvl = safe(getInfo, id)
+      m.minLvl, m.quality = minLvl, quality
     end
     metaCache[id] = m
   end
@@ -146,7 +146,7 @@ local function setField(c, field, counts)
     if not rec then rec = { n = x.n }; c.inv[id] = rec end
     rec.n = x.n
     rec[field] = x.c
-    if x.meta then rec.cls, rec.subcls, rec.minLvl, rec.req, rec.slots = x.meta.cls, x.meta.subcls, x.meta.minLvl, x.meta.req, x.meta.slots end
+    if x.meta then rec.cls, rec.subcls, rec.minLvl, rec.req, rec.slots, rec.quality, rec.equip = x.meta.cls, x.meta.subcls, x.meta.minLvl, x.meta.req, x.meta.slots, x.meta.quality, x.meta.equip end
     if field == "b" and x.bound then rec.bound = true end
   end
   for id, rec in pairs(c.inv) do

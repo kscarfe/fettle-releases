@@ -1346,6 +1346,9 @@ function UI.BuildOptions(p)
   check("bankTagged", "Items and categories tagged for the bank")
   check("bankGear", "Tradeable gear above every alt's level")
   col.y = col.y - 8
+  head("PROFESSION MAINS")
+  check("deGear", "Spare green and blue gear to the main enchanter")
+  col.y = col.y - 8
   head("MINIMAP")
   p.mm = T.Check(box, "Show minimap button", function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end)
   p.mm:SetPoint("TOPLEFT", col.x + 2, col.y)

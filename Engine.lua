@@ -628,6 +628,22 @@ local function recipeUses(list, name)
 end
 
 -- Which main collects this item (may be the holder itself), and why.
+-- Spare green/blue gear for the main enchanter to disenchant. Gear above
+-- every alt's level stays for the bank alt when that option is on.
+local NO_DE = { INVTYPE_BODY = true, INVTYPE_TABARD = true, INVTYPE_NON_EQUIP_IGNORE = true }
+function ns.Disenchantable(holder, rec)
+  if not (rec.cls == ns.CLASS_WEAPON or rec.cls == ns.CLASS_ARMOR) then return false end
+  if rec.quality ~= 2 and rec.quality ~= 3 then return false end
+  if rec.equip and NO_DE[rec.equip] then return false end
+  local s = ns.db.settings
+  if s.bankGear and rec.minLvl and ns.BankAlt(holder) then
+    local maxLevel = holder.level or 0
+    for _, o in ipairs(ns.Siblings(holder)) do if not ns.IsBank(o) then maxLevel = math.max(maxLevel, o.level or 0) end end
+    if rec.minLvl > maxLevel then return false end
+  end
+  return true
+end
+
 function ns.FunnelTarget(holder, rec)
   if not rec or not rec.n then return nil end
   local mains = ns.Mains(holder)
@@ -644,6 +660,10 @@ function ns.FunnelTarget(holder, rec)
     for _, prof in ipairs(ns.Defaults.families[rec.subcls] or {}) do
       if mains[prof] then return mains[prof], prof end
     end
+  end
+  -- 3. gear to disenchant
+  if mains.Enchanting and ns.db.settings.deGear ~= false and ns.Disenchantable(holder, rec) then
+    return mains.Enchanting, "Enchanting", "to disenchant"
   end
   return nil
 end
@@ -669,16 +689,16 @@ local function funnelPlan(me, field, used)
   for key, rec in pairs(me.inv) do
     local avail = (rec[field] or 0) - (used[key] or 0)
     if avail > 0 and rec.n and not (field == "b" and rec.bound) then
-      local main, prof = ns.FunnelTarget(me, rec)
+      local main, prof, why = ns.FunnelTarget(me, rec)
       if main and main.key ~= me.key then
         local id = type(key) == "number" and key or nil
-        local keep = ns.OwnNeed(me, rec.n, id) + ns.FirstAidKeep(me, rec.n)
+        local keep = why and 0 or (ns.OwnNeed(me, rec.n, id) + ns.FirstAidKeep(me, rec.n))
         local give = avail - keep
         if give > 0 then
           used[key] = (used[key] or 0) + give
           local g = byMain[main.key]
           if not g then g = { to = main, items = {}, main = prof }; byMain[main.key] = g end
-          g.items[#g.items + 1] = { id = id, n = rec.n, give = give, reason = ns.MainNoun(prof) }
+          g.items[#g.items + 1] = { id = id, n = rec.n, give = give, reason = why or ns.MainNoun(prof) }
         end
       end
     end
