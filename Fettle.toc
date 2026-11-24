@@ -2,7 +2,7 @@
 ## Title: Fettle
 ## Notes: Alt consumable planner, wish lists and pre-dungeon checklist for WoW Forever.
 ## Author: kscarfe
-## Version: 0.7.3
+## Version: 0.8.0
 ## OptionalDeps: ForeverDungeonJournal, DungeonJournal
 ## SavedVariables: FettleDB
 ## IconTexture: Interface\AddOns\Fettle\Media\icon

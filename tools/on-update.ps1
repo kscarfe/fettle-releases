@@ -5,6 +5,15 @@
 #>
 param([string]$Old = "?", [string]$New = "?", [string]$Target = "")
 
+# One-time move: the repo's branch is now "master" (was "main").
+try {
+  $u = Join-Path $env:LOCALAPPDATA 'Fettle\update.ps1'
+  if (Test-Path $u) {
+    $t = Get-Content $u -Raw
+    if ($t -match 'origin/main') { ($t -replace 'origin/main', 'origin/master') | Set-Content -Path $u -Encoding UTF8 }
+  }
+} catch { }
+
 $title = "Fettle $New installed"
 $body = "Type /reload in WoW to use it."
 if ($Old -eq $New) { $title = "Fettle updated"; }

@@ -3,7 +3,7 @@ local ADDON, ns = ...
 ns = ns or {}
 _G.Fettle = ns
 
-ns.VERSION = "0.7.3"
+ns.VERSION = "0.8.0"
 ns.ICON = "Interface\\AddOns\\Fettle\\Media\\icon"
 ns.ROLES = { "TANK", "HEALER", "MELEE", "RANGED", "CASTER", "BANK" }
 ns.ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", MELEE = "Melee DPS", RANGED = "Ranged DPS", CASTER = "Caster DPS", BANK = "Bank alt" }
@@ -90,6 +90,7 @@ ns.DEFAULT_SETTINGS = {
   hintsMail = true,
   hintsVendor = true,
   hintsBags = true,
+  receiveBugs = false,
   resetTicksOnLeave = true,  -- clear manual ticks when leaving a dungeon
   autoSuggest = false,       -- profession-based wish list suggestions (off: wishlist only)
   -- bank pool: what other alts are prompted to mail to the bank alt
@@ -335,6 +336,7 @@ end
 
 local HELP = {
   "/fettle - open or close the window",
+  "/fettle bug [text] - report a bug to the Fettle developer",
   "/fettle add <category or item> [qty] - add a line to this alt's kit",
   "/fettle want <item> [qty] - add an item to this alt's wish list",
   "/fettle unwant <item> - remove it from the wish list",
@@ -362,6 +364,10 @@ function ns.Slash(msg)
   local me = ns.Me()
   if cmd == "" then
     if ns.ToggleUI then ns.ToggleUI() end
+  elseif cmd == "bug" then
+    if ns.UI and ns.UI.BugWindow then ns.UI.BugWindow("report", rest) end
+  elseif cmd == "bugs" then
+    if ns.UI and ns.UI.BugWindow then ns.UI.BugWindow("inbox") end
   elseif cmd == "help" then
     for _, l in ipairs(HELP) do ns.Print(l) end
   elseif cmd == "want" then
@@ -473,12 +479,115 @@ end
 
 ns.On("PLAYER_LOGIN", function()
   if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix, PREFIX) end
-  if C_Timer and C_Timer.After then C_Timer.After(15, function() send("HELLO:" .. ns.VERSION) end) else send("HELLO:" .. ns.VERSION) end
+  local function hello()
+    send("HELLO:" .. ns.VERSION)
+    if ns.IsDev() then send("DEV:" .. ns.VERSION) end
+  end
+  if C_Timer and C_Timer.After then C_Timer.After(15, hello) else hello() end
 end)
 
+---------------------------------------------------------------------------
+-- Bug reports: typed in game, sent over the guild addon channel to whoever
+-- has "Receive bug reports" on (the developer). Queued until they're online,
+-- resent until they confirm (ACK).
+--   DEV:<v>                 a developer is online (sent at login and to each HELLO)
+--   BUG:<id>:<i>/<n>:<text> one piece of a report
+--   ACK:<id>                developer has it
+---------------------------------------------------------------------------
+local CHUNK = 200
+local function isMe(sender)
+  local me = UnitName and UnitName("player")
+  return sender and me and (sender == me or sender:match("^([^%-]+)") == me)
+end
+
+function ns.IsDev() return ns.db.settings.receiveBugs and true or false end
+
+function ns.BugHeader()
+  local c = ns.Me()
+  local zone = (GetRealZoneText and GetRealZoneText()) or "?"
+  local build = GetBuildInfo and select(1, GetBuildInfo()) or "?"
+  return string.format("Fettle %s · %s (%s %s) · %s · client %s · %s", ns.VERSION, ns.DisplayName(c),
+    tostring(c.className or c.class or "?"), tostring(c.level or "?"), zone, tostring(build), date and date("%Y-%m-%d %H:%M") or "")
+end
+
+local function storeReport(id, from, text)
+  ns.db.bugInbox = ns.db.bugInbox or {}
+  for _, r in ipairs(ns.db.bugInbox) do if r.id == id then return false end end
+  table.insert(ns.db.bugInbox, { id = id, from = from, text = text, at = time and time() or 0 })
+  ns.Changed("bugs")
+  return true
+end
+
+function ns.FlushBugs()
+  local out = ns.db.bugOutbox
+  if not out or #out == 0 then return end
+  local delay = 0
+  for _, r in ipairs(out) do
+    local n = math.ceil(#r.text / CHUNK)
+    for i = 1, n do
+      local piece = "BUG:" .. r.id .. ":" .. i .. "/" .. n .. ":" .. r.text:sub((i - 1) * CHUNK + 1, i * CHUNK)
+      if C_Timer and C_Timer.After and delay > 0 then C_Timer.After(delay, function() send(piece) end) else send(piece) end
+      delay = delay + 0.4
+    end
+  end
+end
+
+-- Returns "saved" (you're the developer), "sent" or "queued".
+function ns.SubmitBug(text)
+  text = ns.Trim(text or "")
+  if text == "" then return nil end
+  local full = ns.BugHeader() .. "\n" .. text:sub(1, 1500)
+  local id = tostring(time and time() or 0) .. tostring(math.random(1000, 9999))
+  if ns.IsDev() then
+    storeReport(id, ns.DisplayName(ns.Me()), full)
+    return "saved"
+  end
+  ns.db.bugOutbox = ns.db.bugOutbox or {}
+  table.insert(ns.db.bugOutbox, { id = id, text = full })
+  send("HELLO:" .. ns.VERSION) -- an online developer answers DEV, which sends it
+  return (IsInGuild and IsInGuild()) and "sent" or "queued"
+end
+
+local partial = {}
+local devAnswered = {}
 ns.On("CHAT_MSG_ADDON", function(_, prefix, msg, channel, sender)
-  if prefix ~= PREFIX or type(msg) ~= "string" then return end
-  local kind, ver = msg:match("^(%u+):(.+)$")
+  if prefix ~= PREFIX or type(msg) ~= "string" or isMe(sender) then return end
+  local kind = msg:match("^(%u+):")
+  if kind == "DEV" then
+    if ns.db.bugOutbox and #ns.db.bugOutbox > 0 then ns.FlushBugs() end
+    return
+  elseif kind == "BUG" then
+    if not ns.IsDev() then return end
+    local id, i, n, text = msg:match("^BUG:(%d+):(%d+)/(%d+):(.*)$")
+    if not id then return end
+    i, n = tonumber(i), tonumber(n)
+    local p = partial[id] or { parts = {}, got = 0 }
+    partial[id] = p
+    if not p.parts[i] then p.parts[i] = text; p.got = p.got + 1 end
+    if p.got >= n then
+      partial[id] = nil
+      if storeReport(id, sender, table.concat(p.parts)) then
+        ns.Print("new bug report from " .. tostring(sender) .. ". Options tab → Bug reports, or /fettle bugs.")
+      end
+      send("ACK:" .. id)
+    end
+    return
+  elseif kind == "ACK" then
+    local id = msg:match("^ACK:(%d+)$")
+    local out = ns.db.bugOutbox or {}
+    for k = #out, 1, -1 do
+      if out[k].id == id then
+        table.remove(out, k)
+        ns.Print("your bug report reached " .. tostring(sender) .. ". Thanks!")
+        ns.Changed("bugs")
+      end
+    end
+    return
+  elseif kind == "HELLO" and ns.IsDev() and not devAnswered[sender] then
+    devAnswered[sender] = true
+    send("DEV:" .. ns.VERSION)
+  end
+  local ver = msg:match("^%u+:(.+)$")
   if not ver then return end
   if ns.VersionNewer(ver, ns.VERSION) then
     if not told then

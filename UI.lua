@@ -1099,6 +1099,113 @@ function UI.DungeonQuestsWindow(c)
 end
 
 ---------------------------------------------------------------------------
+-- Bug reports: write one (sent to the developer), or read what's come in
+---------------------------------------------------------------------------
+local function BugText()
+  local lines = {}
+  for i, r in ipairs(ns.db.bugInbox or {}) do
+    lines[#lines + 1] = "#" .. i .. " from " .. tostring(r.from) .. (date and r.at and ("  (" .. date("%Y-%m-%d %H:%M", r.at) .. ")") or "")
+    lines[#lines + 1] = r.text
+    lines[#lines + 1] = ""
+  end
+  return table.concat(lines, "\n")
+end
+
+function UI.BugWindow(mode, prefill)
+  local f = UI.bugWin
+  if not f then
+    f = T.Frame(UIParent, "FettleBugs")
+    f:SetSize(440, 360)
+    T.Iron(f)
+    f:SetFrameStrata("DIALOG")
+    f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f.title = T.Text(f, "Name", "title"); f.title:SetPoint("TOPLEFT", 18, -14)
+    f.sub = T.Text(f, "Small", "dim"); f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -3); f.sub:SetWidth(400)
+    local close = T.IconButton(f, "icon-close.tga", 22, "Close", function() f:Hide() end)
+    close:SetPoint("TOPRIGHT", -14, -12)
+    local box = T.Frame(f)
+    box:SetPoint("TOPLEFT", 14, -60)
+    box:SetPoint("BOTTOMRIGHT", -14, 46)
+    T.Slot(box)
+    local sf = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+    sf:SetPoint("TOPLEFT", 8, -6)
+    sf:SetPoint("BOTTOMRIGHT", -28, 6)
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject(T.Font.Body)
+    eb:SetWidth(370)
+    eb:SetMaxLetters(1500)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    sf:SetScrollChild(eb)
+    box:EnableMouse(true)
+    box:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    f.edit = eb
+    f.status = T.Text(f, "Italic", "faint"); f.status:SetPoint("BOTTOMLEFT", 18, 18); f.status:SetWidth(220)
+    f.primary = T.Button(f, "Send", 90, function() f:Primary() end, 24)
+    f.primary:SetPoint("BOTTOMRIGHT", -16, 12)
+    f.secondary = T.Button(f, "Clear all", 90, function() f:Secondary() end, 24)
+    f.secondary:SetPoint("RIGHT", f.primary, "LEFT", -8, 0)
+    if UISpecialFrames then table.insert(UISpecialFrames, "FettleBugs") end
+    function f:Primary()
+      if self.mode == "report" then
+        local res = ns.SubmitBug(self.edit:GetText())
+        if not res then self.status:SetText("Type what went wrong first."); return end
+        self.edit:SetText("")
+        if res == "saved" then self.status:SetText("Saved to your bug reports.")
+        else self.status:SetText("Sent. It reaches the developer next time you're both online.") end
+        ns.Print("bug report queued. You'll get a message when the developer has it.")
+      else
+        self.edit:HighlightText()
+        self.edit:SetFocus()
+        self.status:SetText("Press Ctrl+C to copy.")
+      end
+    end
+    function f:Secondary()
+      if self.mode == "inbox" then
+        if IsShiftKeyDown and IsShiftKeyDown() then
+          ns.db.bugInbox = {}
+          ns.Changed("bugs")
+          self:Refresh()
+        else
+          self.status:SetText("Shift-click to delete every report.")
+        end
+      end
+    end
+    function f:Refresh()
+      if self.mode == "report" then
+        self.title:SetText("Report a bug")
+        local q = #(ns.db.bugOutbox or {})
+        self.sub:SetText("Say what you did, what happened, and what you expected. Your version and character are added for you.")
+        self.status:SetText(q > 0 and (q .. " report" .. (q > 1 and "s" or "") .. " waiting for the developer to log in") or "")
+        self.primary:SetLabel("Send")
+        self.secondary:Hide()
+      else
+        local n = #(ns.db.bugInbox or {})
+        self.title:SetText("Bug reports (" .. n .. ")")
+        self.sub:SetText("Reports from your guildies. Select all and copy them to paste wherever you track bugs.")
+        self.edit:SetText(n > 0 and BugText() or "No reports yet.")
+        self.status:SetText("")
+        self.primary:SetLabel("Select all")
+        self.secondary:Show()
+      end
+    end
+    ns.OnChange(function(what) if what == "bugs" and f:IsShown() and f.mode == "inbox" then f:Refresh() end end)
+    UI.bugWin = f
+  end
+  f.mode = mode or "report"
+  if f.mode == "report" then f.edit:SetText(prefill or "") end
+  f:ClearAllPoints()
+  f:SetPoint("CENTER")
+  f:Show()
+  f:Refresh()
+  if f.mode == "report" then f.edit:SetFocus() end
+  return f
+end
+
+---------------------------------------------------------------------------
 -- Category editor (opened from a line's ... menu): which items count
 ---------------------------------------------------------------------------
 function UI.EditCategory(key)
@@ -1242,6 +1349,15 @@ function UI.BuildOptions(p)
   head("MINIMAP")
   p.mm = T.Check(box, "Show minimap button", function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end)
   p.mm:SetPoint("TOPLEFT", col.x + 2, col.y)
+  col.y = col.y - 33
+  head("BUG REPORTS")
+  local report = T.Button(box, "Report a bug", 120, function() UI.BugWindow("report") end, 24)
+  report:SetPoint("TOPLEFT", col.x + 2, col.y)
+  report.tip = { "Report a bug", "Sends a report to the Fettle developer in game (when you're both online)." }
+  p.inboxBtn = T.Button(box, "Bug reports", 120, function() UI.BugWindow("inbox") end, 24)
+  p.inboxBtn:SetPoint("LEFT", report, "RIGHT", 8, 0)
+  col.y = col.y - 32
+  check("receiveBugs", "Receive bug reports (I make Fettle)")
 
   local reset = T.Button(p, "Reset category edits", 170, function()
     if IsShiftKeyDown and IsShiftKeyDown() then ns.Slash("resetref") else ns.Print("Shift-click to discard all your category and task edits.") end
@@ -1258,5 +1374,7 @@ function UI.BuildOptions(p)
     for _, c in ipairs(self.checks) do c:SetChecked(s()[c.key] and true or false) end
     for _, e in ipairs(self.nums) do if not e:HasFocus() then e:SetText(tostring(s()[e.key] or "")) end end
     self.mm:SetChecked(not ns.db.minimap.hide)
+    local n = #(ns.db.bugInbox or {})
+    if ns.IsDev() or n > 0 then self.inboxBtn:Show(); self.inboxBtn:SetLabel("Bug reports (" .. n .. ")") else self.inboxBtn:Hide() end
   end
 end
