@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Fettle
+## Notes: Alt consumable planner, wish lists and pre-dungeon checklist for WoW Forever.
+## Author: kscarfe
+## Version: 0.7.2
+## OptionalDeps: ForeverDungeonJournal, DungeonJournal
+## SavedVariables: FettleDB
+## IconTexture: Interface\AddOns\Fettle\Media\icon
+
+Core.lua
+Defaults.lua
+Reference.lua
+Scanner.lua
+Engine.lua
+Theme.lua
+UI.lua
+Hints.lua
+Minimap.lua
