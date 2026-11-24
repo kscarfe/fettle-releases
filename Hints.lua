@@ -31,6 +31,7 @@ local KINDS = {
   end, fill = function(r, e)
     r.qty:SetText(tostring(e.item.give))
     r.name:SetText(e.item.n)
+    r.tip = e.item.full and { e.item.n, e.item.full } or nil
     if e.button then
       r.tag:Hide(); r.btn:Show(); r.btn:SetLabel(e.button[1]); r.btn:SetScript("OnClick", e.button[2])
       r.name:SetText(e.item.n .. C("dim", "  " .. (e.item.reason or "")))
@@ -58,6 +59,9 @@ local function shortReason(reason)
   if reason == "tagged for the bank" then return "tagged" end
   if reason:find("^surplus") then return "surplus" end
   if reason:find("^not in ") then return "not in kit" end
+  if reason:find("^bigger bag") then return "bigger bag" end
+  if reason:find("^levelling ") then return "levelling" end
+  if #reason > 18 then return reason:sub(1, 16) .. "..." end
   return reason
 end
 
@@ -134,7 +138,7 @@ local function Show(title, info, rows, anchorTo)
     if x.header then
       entries[#entries + 1] = { kind = "group", title = x.header, sub = x.sub, subHex = x.subHex, button = x.button }
     else
-      local it = { n = x.item.n, give = x.item.give, reason = x.button and x.item.reason or shortReason(x.item.reason) }
+      local it = { n = x.item.n, give = x.item.give, reason = x.button and x.item.reason or shortReason(x.item.reason), full = x.item.reason }
       entries[#entries + 1] = { kind = "item", item = it, button = x.button, tagHex = tagHex(x.item.reason) }
     end
   end

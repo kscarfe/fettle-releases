@@ -182,20 +182,32 @@ function ns.ScanBags()
     if f and (bagType == nil or bagType == 0) then free = free + f end
   end
   c.freeSlots = free
-  -- sizes of the equipped bags (0 = empty bag slot); special bags count as empty
-  local sizes = {}
+  -- sizes of the four ordinary bag slots (0 = confirmed empty). Special bags
+  -- (quiver, ammo, soul, herb...) and the keyring/reagent bag are left out, and
+  -- if a slot can't be read yet the old record is kept.
+  local sizes, unsure = {}, false
   ns.db.bagSlots = ns.db.bagSlots or {}
-  for bag = 1, (NUM_BAG_SLOTS or 4) do
+  for bag = 1, 4 do
     local n = NumSlots(bag) or 0
-    local bagType
-    if C_Container and C_Container.GetContainerNumFreeSlots then _, bagType = safe(C_Container.GetContainerNumFreeSlots, bag) end
-    if bagType and bagType ~= 0 then n = 0 end
-    sizes[#sizes + 1] = n
-    local inv = C_Container and C_Container.ContainerIDToInventoryID and safe(C_Container.ContainerIDToInventoryID, bag)
+    local inv = (C_Container and C_Container.ContainerIDToInventoryID and safe(C_Container.ContainerIDToInventoryID, bag))
+             or (ContainerIDToInventoryID and safe(ContainerIDToInventoryID, bag))
     local id = inv and GetInventoryItemID and safe(GetInventoryItemID, "player", inv)
-    if id and n > 0 then ns.db.bagSlots[id] = NumSlots(bag) end
+    local _, bagType
+    if C_Container and C_Container.GetContainerNumFreeSlots then _, bagType = safe(C_Container.GetContainerNumFreeSlots, bag)
+    elseif GetContainerNumFreeSlots then _, bagType = safe(GetContainerNumFreeSlots, bag) end
+    if id then
+      if n == 0 then unsure = true                           -- bag info not loaded yet
+      elseif bagType and bagType ~= 0 then                    -- special bag: not a candidate
+      else sizes[#sizes + 1] = n; ns.db.bagSlots[id] = n end
+    elseif n > 0 then
+      if not (bagType and bagType ~= 0) then sizes[#sizes + 1] = n end
+    elseif inv and GetInventoryItemID then
+      sizes[#sizes + 1] = 0                                   -- really empty
+    else
+      unsure = true
+    end
   end
-  c.bagSizes = sizes
+  if not unsure then c.bagSizes = sizes end
   c.bagsSeen = ns.Now()
 end
 
