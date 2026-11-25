@@ -3,7 +3,7 @@ local ADDON, ns = ...
 ns = ns or {}
 _G.Fettle = ns
 
-ns.VERSION = "0.8.1"
+ns.VERSION = "0.8.2"
 ns.ICON = "Interface\\AddOns\\Fettle\\Media\\icon"
 ns.ROLES = { "TANK", "HEALER", "MELEE", "RANGED", "CASTER", "BANK" }
 ns.ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", MELEE = "Melee DPS", RANGED = "Ranged DPS", CASTER = "Caster DPS", BANK = "Bank alt" }

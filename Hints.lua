@@ -68,6 +68,7 @@ end
 function Hints.Create()
   if Hints.frame then return Hints.frame end
   local f = T.Frame(UIParent, "FettleHints")
+  T.Window(f)
   f:SetSize(PW, PH)
   T.Iron(f)
   f:SetFrameStrata("HIGH")

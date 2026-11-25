@@ -123,6 +123,7 @@ function UI.Pick(title, entries, onPick, onCreate)
   local f = UI.picker
   if not f then
     f = T.Frame(UIParent, "FettlePicker")
+    T.Window(f)
     f:SetSize(300, 420)
     T.Iron(f)
     f:SetFrameStrata("DIALOG")
@@ -176,7 +177,7 @@ function UI.Pick(title, entries, onPick, onCreate)
   f.list:Render(list)
   f:ClearAllPoints()
   if UI.frame and UI.frame:IsShown() then f:SetPoint("TOPLEFT", UI.frame, "TOPRIGHT", 6, 0) else f:SetPoint("CENTER") end
-  f:Show()
+  f:Show(); T.BringToFront(f)
   return f
 end
 
@@ -264,6 +265,7 @@ end
 function UI.Create()
   if UI.frame then return UI.frame end
   local f = T.Frame(UIParent, "FettleFrame")
+  T.Window(f)
   f:SetSize(W, H)
   f:SetPoint("CENTER")
   T.Iron(f)
@@ -328,7 +330,7 @@ function UI.Show(i)
   UI.current = i or UI.current or 1
   for n, p in ipairs(UI.panels) do if n == UI.current then p:Show() else p:Hide() end end
   StyleTabs()
-  UI.frame:Show()
+  UI.frame:Show(); T.BringToFront(UI.frame)
   UI.Refresh()
 end
 
@@ -1052,6 +1054,7 @@ function UI.DungeonQuestsWindow(c)
   local f = UI.questWin
   if not f then
     f = T.Frame(UIParent, "FettleQuests")
+    T.Window(f)
     f:SetSize(460, 480)
     T.Iron(f)
     f:SetFrameStrata("DIALOG")
@@ -1093,7 +1096,7 @@ function UI.DungeonQuestsWindow(c)
   f.char = c
   f:ClearAllPoints()
   if UI.frame and UI.frame:IsShown() then f:SetPoint("TOPLEFT", UI.frame, "TOPRIGHT", 6, 0) else f:SetPoint("CENTER") end
-  f:Show()
+  f:Show(); T.BringToFront(f)
   f:Refresh()
   return f
 end
@@ -1115,6 +1118,7 @@ function UI.BugWindow(mode, prefill)
   local f = UI.bugWin
   if not f then
     f = T.Frame(UIParent, "FettleBugs")
+    T.Window(f)
     f:SetSize(440, 360)
     T.Iron(f)
     f:SetFrameStrata("DIALOG")
@@ -1199,7 +1203,7 @@ function UI.BugWindow(mode, prefill)
   if f.mode == "report" then f.edit:SetText(prefill or "") end
   f:ClearAllPoints()
   f:SetPoint("CENTER")
-  f:Show()
+  f:Show(); T.BringToFront(f)
   f:Refresh()
   if f.mode == "report" then f.edit:SetFocus() end
   return f
@@ -1212,6 +1216,7 @@ function UI.EditCategory(key)
   local f = UI.catEditor
   if not f then
     f = T.Frame(UIParent, "FettleCategory")
+    T.Window(f)
     f:SetSize(460, 500)
     T.Iron(f)
     f:SetFrameStrata("DIALOG")
@@ -1283,7 +1288,7 @@ function UI.EditCategory(key)
   f.key = key
   f:ClearAllPoints()
   if UI.frame and UI.frame:IsShown() then f:SetPoint("TOPLEFT", UI.frame, "TOPRIGHT", 6, 0) else f:SetPoint("CENTER") end
-  f:Show()
+  f:Show(); T.BringToFront(f)
   f:Refresh()
   return f
 end

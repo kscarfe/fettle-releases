@@ -75,6 +75,29 @@ function T.Frame(parent, name, kind)
   return f
 end
 
+-- Fettle's own windows. Each gets its own band of frame levels (100 apart) so
+-- their parts never interleave, and the one shown or clicked last comes to the front.
+local windows = {}
+function T.BringToFront(f)
+  for i = #windows, 1, -1 do if windows[i] == f then table.remove(windows, i) end end
+  windows[#windows + 1] = f
+  for i, w in ipairs(windows) do
+    if w.SetFrameLevel then w:SetFrameLevel(i * 100) end
+  end
+  if f.Raise then f:Raise() end
+end
+
+function T.Window(f)
+  if f.SetToplevel then f:SetToplevel(true) end
+  if f.SetClampedToScreen then f:SetClampedToScreen(true) end
+  windows[#windows + 1] = f
+  local hook = f.HookScript or f.SetScript
+  hook(f, "OnShow", function() T.BringToFront(f) end)
+  hook(f, "OnMouseDown", function() T.BringToFront(f) end)
+  return f
+end
+T.WindowOrder = function() return windows end
+
 function T.Box(f, bgHex, edgeHex, bgAlpha)
   if not f.SetBackdrop then return f end
   f:SetBackdrop(BACKDROP)
