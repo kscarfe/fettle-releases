@@ -10,6 +10,7 @@
 param([switch]$Install, [switch]$Manual)
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $Home2 = Join-Path $env:LOCALAPPDATA "Fettle"
 $log = Join-Path $Home2 "update.log"
@@ -45,7 +46,7 @@ try {
   $target = Join-Path $addons "Fettle"
   $bust = "?t=" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-  $remoteToc = (Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/main/Fettle.toc$bust").Content
+  $remoteToc = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri "https://raw.githubusercontent.com/$repo/main/Fettle.toc$bust").Content
   $remote = Get-Version $remoteToc
   if (-not $remote) { throw "couldn't read the online version" }
 
@@ -62,7 +63,7 @@ try {
   $tmp = Join-Path $env:TEMP ("fettle-" + [guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   $zip = Join-Path $tmp "fettle.zip"
-  Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$repo/zip/refs/heads/main" -OutFile $zip
+  Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "https://codeload.github.com/$repo/zip/refs/heads/main" -OutFile $zip
   Expand-Archive -Path $zip -DestinationPath $tmp -Force
   $src = Get-ChildItem -Path $tmp -Directory | Where-Object { Test-Path (Join-Path $_.FullName "Fettle.toc") } | Select-Object -First 1
   if (-not $src) { throw "the download doesn't look like Fettle" }

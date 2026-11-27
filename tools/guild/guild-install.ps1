@@ -18,6 +18,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"   # the progress bar makes downloads crawl in Windows PowerShell
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $TaskName = "Fettle updater"
 $Home2 = Join-Path $env:LOCALAPPDATA "Fettle"
@@ -36,11 +37,27 @@ if (Get-Process -Name "Wow*" -ErrorAction SilentlyContinue | Where-Object { $_.N
 # --- 1. find the AddOns folder ----------------------------------------------------------
 function Find-AddOns {
   $roots = @()
-  foreach ($drive in (Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -ne $null })) {
+  # 1. where Blizzard says WoW is installed
+  foreach ($key in @("HKLM:\SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",
+                     "HKLM:\SOFTWARE\Blizzard Entertainment\World of Warcraft")) {
+    try {
+      $p = (Get-ItemProperty -Path $key -ErrorAction Stop).InstallPath
+      if ($p) {
+        $p = $p.TrimEnd("\")
+        if ((Split-Path $p -Leaf) -like "_*_") { $p = Split-Path $p -Parent }   # InstallPath may point at _retail_ etc.
+        if (Test-Path $p) { $roots += $p }
+      }
+    } catch { }
+  }
+  # 2. the usual folders, on local hard drives only (network and card-reader drives can hang)
+  $drives = @()
+  try { $drives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction Stop | ForEach-Object { $_.DeviceID + "\" }) }
+  catch { $drives = @("C:\") }
+  foreach ($root in $drives) {
     foreach ($rel in @("Program Files (x86)\World of Warcraft", "Program Files\World of Warcraft",
                        "World of Warcraft", "Games\World of Warcraft", "Blizzard\World of Warcraft")) {
-      $p = Join-Path $drive.Root $rel
-      if (Test-Path $p) { $roots += $p }
+      $p = Join-Path $root $rel
+      if ((Test-Path $p) -and ($roots -notcontains $p)) { $roots += $p }
     }
   }
   $found = @()
@@ -57,6 +74,7 @@ function Find-AddOns {
   return $found
 }
 
+Say "Looking for World of Warcraft..." Cyan
 $configPath = Join-Path $Home2 "config.json"
 if (-not $AddOnsPath -and (Test-Path $configPath)) {
   try { $old = Get-Content $configPath -Raw | ConvertFrom-Json; if ($old.AddOnsPath -and (Test-Path $old.AddOnsPath)) { $AddOnsPath = $old.AddOnsPath } } catch { }
@@ -96,7 +114,7 @@ if (Test-Path (Join-Path $Target ".git")) {
 $updater = Join-Path $Home2 "update.ps1"
 $url = "https://raw.githubusercontent.com/$Repo/main/tools/guild/guild-update.ps1?t=" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 Say "Downloading the updater..." Cyan
-Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $updater
+Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $url -OutFile $updater
 
 Say "Installing the latest Fettle..." Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -Install
