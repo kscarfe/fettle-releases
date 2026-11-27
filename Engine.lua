@@ -374,9 +374,12 @@ function ns.Suggestions(c)
 end
 
 -- Everything alt `c` still needs: wish list, suggestions, checklist gaps.
+-- Suggestion switches (Options -> What to suggest); missing means on.
+function ns.Suggests(key) return ns.db.settings[key] ~= false end
+
 function ns.OpenWants(c)
   local out = {}
-  for _, w in pairs(c.wish) do
+  for _, w in pairs(ns.Suggests("hintWish") and c.wish or {}) do
     local want = { n = w.n, id = w.id }
     local b, k, m = ns.Stock(c, want)
     local rem = (w.q or 0) - (b + k + m)
@@ -385,7 +388,7 @@ function ns.OpenWants(c)
   for _, s in ipairs(ns.Suggestions(c)) do
     out[#out + 1] = { want = { n = s.n, id = s.id }, remaining = s.q - s.have, reason = "suggested" }
   end
-  for _, row in ipairs(ns.Checklist(c)) do
+  for _, row in ipairs(ns.Suggests("hintKits") and ns.Checklist(c) or {}) do
     if isGap(row) then
       local b, k, m = ns.Stock(c, row.want, c)
       local rem = row.qty - (b + k + m)
@@ -650,13 +653,14 @@ function ns.FunnelTarget(holder, rec)
   local profs = {}
   for prof in pairs(mains) do profs[#profs + 1] = prof end
   table.sort(profs)
+  local matsOn = ns.Suggests("hintMains")
   -- 1. a main whose learned recipes use it
-  for _, prof in ipairs(profs) do
+  for _, prof in ipairs(matsOn and profs or {}) do
     local m = mains[prof]
     if recipeUses(m.recipes and m.recipes[prof], rec.n) then return m, prof end
   end
   -- 2. the material family (trade goods subclass)
-  if rec.cls == ns.CLASS_TRADEGOODS and rec.subcls then
+  if matsOn and rec.cls == ns.CLASS_TRADEGOODS and rec.subcls then
     for _, prof in ipairs(ns.Defaults.families[rec.subcls] or {}) do
       if mains[prof] then return mains[prof], prof end
     end
@@ -1048,7 +1052,9 @@ local function planFrom(me, field)
   for _, o in ipairs(ns.Siblings(me)) do
     if not ns.IsBank(o) then
       local items = giveList(me, field, o, used)
-      for _, it in ipairs(learnables(me, field, o, used)) do items[#items + 1] = it end
+      if ns.Suggests("hintLearn") then
+        for _, it in ipairs(learnables(me, field, o, used)) do items[#items + 1] = it end
+      end
       if #items > 0 then out[#out + 1] = { to = o, items = items } end
     end
   end
@@ -1141,12 +1147,13 @@ function ns.VendorWants(me)
     end
     return direct, mats
   end
-  for _, w in pairs(me.wish) do
+  local wishOn, kitsOn = ns.Suggests("hintWish"), ns.Suggests("hintKits")
+  for _, w in pairs(wishOn and me.wish or {}) do
     local want = { n = w.n, id = w.id }
     local b, k, m = ns.Stock(me, want)
     if (w.q or 0) > b + k + m then direct[#direct + 1] = { want = want, remaining = w.q - (b + k + m), reason = "wish list" } end
   end
-  for _, row in ipairs(ns.Checklist(me)) do
+  for _, row in ipairs(kitsOn and ns.Checklist(me) or {}) do
     if isGap(row) then
       local b, k, m = ns.Stock(me, row.want, me)
       local rem = row.qty - (b + k + m)
@@ -1156,7 +1163,7 @@ function ns.VendorWants(me)
 
   local acc = {}
   -- skill-ups: the levelling plan only ever uses orange/yellow recipes I know
-  for _, prof in ipairs(ns.CraftingProfs(me)) do
+  for _, prof in ipairs(ns.db.settings.planWants and ns.CraftingProfs(me) or {}) do
     local plan = ns.LevelPlan(me, prof)
     if plan and plan.rec then addReagents(acc, plan.rec, plan.crafts, prof .. " skill-up: " .. plan.recipe) end
   end
@@ -1175,12 +1182,12 @@ function ns.VendorWants(me)
   local pool = ns.Siblings(me)
   pool[#pool + 1] = me
   for _, o in ipairs(pool) do
-    if not ns.IsBank(o) then
+    if not ns.IsBank(o) and kitsOn then
       for _, row in ipairs(ns.Checklist(o)) do
         if isGap(row) then craftFor(o, row.want, row.qty - row.have, row.label) end
       end
     end
-    for _, w in pairs(o.wish or {}) do
+    for _, w in pairs(wishOn and o.wish or {}) do
       local want = { n = w.n, id = w.id }
       local b, k, m = ns.Stock(o, want)
       craftFor(o, want, (w.q or 0) - (b + k + m), w.n)

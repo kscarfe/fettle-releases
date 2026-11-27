@@ -1333,9 +1333,6 @@ function UI.BuildOptions(p)
   check("hintsBank", "Hints at the bank")
   check("hintsMail", "Hints at the mailbox")
   check("hintsVendor", "Hints at vendors")
-  check("hintsBags", "Suggest mailing bigger bags to alts")
-  check("autoSuggest", "Suggest wish list mats from professions")
-  check("planWants", "Levelling plan mats show in mail and vendor hints")
   col.y = col.y - 8
   head("NUMBERS")
   num("surplusCap", "Surplus cap (times the kit amount)")
@@ -1343,34 +1340,39 @@ function UI.BuildOptions(p)
   num("minFreeSlots", "Free bag slots wanted")
   num("suggestCrafts", "Skill-up crafts per recipe")
   num("suggestMaxRecipes", "Skill-up recipes per profession")
+  col.y = col.y - 8
+  head("OTHER")
+  p.mm = T.Check(box, "Show minimap button", function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end)
+  p.mm:SetPoint("TOPLEFT", col.x + 2, col.y)
+  col.y = col.y - 25
+  check("receiveBugs", "Receive bug reports (I make Fettle)")
   at(math.floor(CW / 2) + 10)
+  head("WHAT TO SUGGEST")
+  check("hintKits", "Items missing from alts' kits")
+  check("hintWish", "Wish list items")
+  check("planWants", "Mats for levelling plans")
+  check("hintLearn", "Recipes another alt can learn")
+  check("hintMains", "Mats for profession mains")
+  check("deGear", "Green and blue gear for the main enchanter")
+  check("hintsBags", "Bigger bags for alts")
+  check("autoSuggest", "Wish list mats from professions")
+  col.y = col.y - 8
   head("SEND TO THE BANK ALT")
   check("bankRecipes", "Recipes no alt can learn yet")
   check("bankMats", "Trade goods nobody needs or collects")
   check("bankSurplus", "Consumables over the surplus cap")
   check("bankTagged", "Items and categories tagged for the bank")
   check("bankGear", "Tradeable gear above every alt's level")
-  col.y = col.y - 8
-  head("PROFESSION MAINS")
-  check("deGear", "Spare green and blue gear to the main enchanter")
-  col.y = col.y - 8
-  head("MINIMAP")
-  p.mm = T.Check(box, "Show minimap button", function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end)
-  p.mm:SetPoint("TOPLEFT", col.x + 2, col.y)
-  col.y = col.y - 33
-  head("BUG REPORTS")
-  local report = T.Button(box, "Report a bug", 120, function() UI.BugWindow("report") end, 24)
-  report:SetPoint("TOPLEFT", col.x + 2, col.y)
-  report.tip = { "Report a bug", "Sends a report to the Fettle developer in game (when you're both online)." }
-  p.inboxBtn = T.Button(box, "Bug reports", 120, function() UI.BugWindow("inbox") end, 24)
-  p.inboxBtn:SetPoint("LEFT", report, "RIGHT", 8, 0)
-  col.y = col.y - 32
-  check("receiveBugs", "Receive bug reports (I make Fettle)")
 
+  local report = T.Button(p, "Report a bug", 120, function() UI.BugWindow("report") end, 24)
+  report.tip = { "Report a bug", "Sends a report to the Fettle developer in game (when you're both online)." }
+  p.inboxBtn = T.Button(p, "Bug reports", 120, function() UI.BugWindow("inbox") end, 24)
   local reset = T.Button(p, "Reset category edits", 170, function()
     if IsShiftKeyDown and IsShiftKeyDown() then ns.Slash("resetref") else ns.Print("Shift-click to discard all your category and task edits.") end
   end)
   reset:SetPoint("BOTTOMLEFT", 0, 4)
+  report:SetPoint("LEFT", reset, "RIGHT", 8, 0)
+  p.inboxBtn:SetPoint("LEFT", report, "RIGHT", 8, 0)
   reset.tip = { "Reset category edits", "Shift-click to discard all your changes to categories and shared tasks." }
   local ver = T.Text(p, "Small", "faint"); ver:SetPoint("BOTTOMRIGHT", -2, 10); ver:SetText("Fettle " .. ns.VERSION .. "   /fettle help")
 
