@@ -24,6 +24,26 @@ $TaskName = "Fettle updater"
 $Home2 = Join-Path $env:LOCALAPPDATA "Fettle"
 New-Item -ItemType Directory -Force -Path $Home2 | Out-Null
 
+# Fetch a text file from the release copy. raw.githubusercontent.com is tried
+# first; some networks can't reach it (often broken IPv6), so the GitHub API and
+# the jsDelivr mirror are fallbacks.
+function Get-ReleaseText([string]$Repo, [string]$Path) {
+  $bust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $urls = @("https://raw.githubusercontent.com/$Repo/main/${Path}?t=$bust",
+            "https://api.github.com/repos/$Repo/contents/${Path}?ref=main",
+            "https://cdn.jsdelivr.net/gh/$Repo@main/$Path")
+  $errs = @()
+  foreach ($u in $urls) {
+    try {
+      $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $u -Headers @{ Accept = "application/vnd.github.raw" }
+      $c = $r.Content
+      if ($c -is [byte[]]) { $c = [Text.Encoding]::UTF8.GetString($c) }
+      if ($c) { return $c }
+    } catch { $errs += ($u.Split("/")[2] + ": " + $_.Exception.Message) }
+  }
+  throw ("couldn't reach GitHub. " + ($errs -join " | "))
+}
+
 function Say($msg, $color = "Gray") { Write-Host $msg -ForegroundColor $color }
 
 Say "Fettle installer" Cyan
@@ -112,9 +132,8 @@ if (Test-Path (Join-Path $Target ".git")) {
 
 # --- 2. updater script, then run it once to install ------------------------------------------
 $updater = Join-Path $Home2 "update.ps1"
-$url = "https://raw.githubusercontent.com/$Repo/main/tools/guild/guild-update.ps1?t=" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 Say "Downloading the updater..." Cyan
-Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $url -OutFile $updater
+Set-Content -Path $updater -Value (Get-ReleaseText $Repo "tools/guild/guild-update.ps1") -Encoding UTF8
 
 Say "Installing the latest Fettle..." Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $updater -Install

@@ -28,6 +28,26 @@ function Notify($title, $body) {
   } catch { }
 }
 
+# Fetch a text file from the release copy. raw.githubusercontent.com is tried
+# first; some networks can't reach it (often broken IPv6), so the GitHub API and
+# the jsDelivr mirror are fallbacks.
+function Get-ReleaseText([string]$Repo, [string]$Path) {
+  $bust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $urls = @("https://raw.githubusercontent.com/$Repo/main/${Path}?t=$bust",
+            "https://api.github.com/repos/$Repo/contents/${Path}?ref=main",
+            "https://cdn.jsdelivr.net/gh/$Repo@main/$Path")
+  $errs = @()
+  foreach ($u in $urls) {
+    try {
+      $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $u -Headers @{ Accept = "application/vnd.github.raw" }
+      $c = $r.Content
+      if ($c -is [byte[]]) { $c = [Text.Encoding]::UTF8.GetString($c) }
+      if ($c) { return $c }
+    } catch { $errs += ($u.Split("/")[2] + ": " + $_.Exception.Message) }
+  }
+  throw ("couldn't reach GitHub. " + ($errs -join " | "))
+}
+
 function Get-Version($tocText) {
   $m = [regex]::Match($tocText, '(?m)^## Version:\s*(\S+)')
   if ($m.Success) { return $m.Groups[1].Value.Trim() }
@@ -46,7 +66,7 @@ try {
   $target = Join-Path $addons "Fettle"
   $bust = "?t=" + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-  $remoteToc = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri "https://raw.githubusercontent.com/$repo/main/Fettle.toc$bust").Content
+  $remoteToc = Get-ReleaseText $repo "Fettle.toc"
   $remote = Get-Version $remoteToc
   if (-not $remote) { throw "couldn't read the online version" }
 
