@@ -89,26 +89,65 @@ function ns.Starter(c, role)
 end
 
 function ns.SeedKit(c, role)
-  c.kit = ns.Starter(c, role)
+  c.kit = {}
+  for _, l in ipairs(ns.Starter(c, role)) do if not l.optional then l.optional = nil; c.kit[#c.kit + 1] = l end end
   c.kitRole = role or ns.RoleOf(c)
   ns.Changed("kit")
 end
 
--- First sight of an alt: build its kit (carrying over v0.1 per-alt overrides).
+-- Kits start empty: you build them from the suggestions (ns.KitSuggestions).
 function ns.EnsureKit(c)
   if c.kit then return c.kit end
-  c.kit = ns.Starter(c)
+  c.kit = {}
   c.kitRole = ns.RoleOf(c)
-  local keep = {}
-  for _, line in ipairs(c.kit) do
-    if not (c.needOff and c.needOff[line.from]) then
-      if c.needQty and c.needQty[line.from] then line.qty = c.needQty[line.from] end
-      keep[#keep + 1] = line
+  return c.kit
+end
+
+-- What the Add item picker offers this alt: its class/role starter lines first
+-- (with their usual amount), then every other category. Lines already in the
+-- kit are left out.
+function ns.KitSuggestions(c)
+  ns.EnsureKit(c)
+  local have = {}
+  for _, l in ipairs(c.kit) do have[l.cat] = true end
+  local suggested, seen = {}, {}
+  for _, l in ipairs(ns.Starter(c)) do
+    local cat = ns.ref.categories[l.cat]
+    if cat and not have[l.cat] and not seen[l.cat] and not ns.LineLocked(l, c) then
+      seen[l.cat] = true
+      local best = ns.BestRank(l.cat, c)
+      suggested[#suggested + 1] = { cat = l.cat, qty = l.qty, name = cat.name, best = best and best.n }
     end
   end
-  c.kit = keep
-  c.needQty, c.needOff = {}, {}
-  return c.kit
+  local others = {}
+  for _, key in ipairs(ns.CategoryKeys()) do
+    local cat = ns.ref.categories[key]
+    if not have[key] and not seen[key] and cat and not cat.task then
+      local best = ns.BestRank(key, c)
+      others[#others + 1] = { cat = key, qty = 1, name = cat.name, best = best and best.n }
+    end
+  end
+  table.sort(others, function(a, b) return a.name < b.name end)
+  return suggested, others
+end
+
+-- Ranks of a line's category this alt can use, best first (for pinning one).
+function ns.RankChoices(c, cat)
+  local out = {}
+  local def = ns.ref.categories[cat]
+  for _, r in ipairs((def and def.ranks) or {}) do
+    if r.n and (not r.lvl or ns.RankUsable(r, c)) then out[#out + 1] = r end
+  end
+  table.sort(out, function(a, b) return (a.lvl or 0) > (b.lvl or 0) end)
+  return out
+end
+
+-- Pin a kit line to one item instead of "the best you can use" (nil = unpin).
+function ns.PinLine(c, idx, rank)
+  local l = c.kit[idx]
+  if not l then return end
+  l.pin = rank and { n = rank.n, id = rank.id } or nil
+  ns.Changed("kit")
 end
 
 -- nil when active, otherwise the reason it is waiting
@@ -121,7 +160,6 @@ end
 
 function ns.SetLineQty(c, idx, q) local l = c.kit[idx]; if l and q then l.qty = q end; ns.Changed("kit") end
 function ns.RemoveLine(c, idx) table.remove(c.kit, idx); ns.Changed("kit") end
-function ns.ToggleLineOptional(c, idx) local l = c.kit[idx]; if l then l.optional = not l.optional or nil end; ns.Changed("kit") end
 
 function ns.AddLine(c, cat, qty)
   ns.EnsureKit(c)
@@ -195,11 +233,11 @@ function ns.Checklist(c)
       rows[#rows + 1] = { kind = "line", idx = idx, line = line, label = cat and cat.name or line.cat,
                           qty = line.qty, have = 0, status = "locked", locked = locked, optional = true }
     else
-      local want = { cat = line.cat }
+      local want = line.pin and { n = line.pin.n, id = line.pin.id } or { cat = line.cat }
       local have, bank, mail = ns.Stock(c, want, c)
-      local best = ns.BestRank(line.cat, c)
-      local row = { kind = "line", idx = idx, line = line, want = want, qty = line.qty, have = have,
-                    label = cat.name, optional = line.optional, status = statusFor(have, line.qty, line.optional), best = best }
+      local best = line.pin and { n = line.pin.n, id = line.pin.id } or ns.BestRank(line.cat, c)
+      local row = { kind = "line", idx = idx, line = line, want = want, qty = line.qty, have = have, pinned = line.pin and true,
+                    label = line.pin and line.pin.n or cat.name, status = statusFor(have, line.qty, false), best = best }
       row.sources = sourcesFor(c, want, line.qty, have, bank, mail)
       row.sources.vendor = best and best.src == "Vendor"
       rows[#rows + 1] = row
@@ -399,8 +437,7 @@ function ns.OpenWants(c)
     for _, prof in ipairs(ns.CraftingProfs(c)) do
       -- when another alt is the main for this profession, the mats are theirs:
       -- don't pull them back out to level this alt
-      local main = ns.MainFor(c, prof)
-      local plan = not (main and main.key ~= c.key) and ns.LevelPlan(c, prof)
+      local plan = ns.IsMain(c, prof) and ns.LevelPlan(c, prof)
       for _, x in ipairs((plan and plan.shop) or {}) do
         if x.need > x.have then
           out[#out + 1] = { want = { n = x.n, id = x.id }, remaining = x.need - x.have, reason = "levelling " .. prof }
@@ -1171,7 +1208,7 @@ function ns.VendorWants(me)
   local acc = {}
   -- skill-ups: the levelling plan only ever uses orange/yellow recipes I know
   for _, prof in ipairs(ns.db.settings.planWants and ns.CraftingProfs(me) or {}) do
-    local plan = ns.LevelPlan(me, prof)
+    local plan = ns.IsMain(me, prof) and ns.LevelPlan(me, prof)
     if plan and plan.rec then addReagents(acc, plan.rec, plan.crafts, prof .. " skill-up: " .. plan.recipe) end
   end
   -- crafts for anything I or my alts still need, from recipes I know

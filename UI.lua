@@ -119,7 +119,9 @@ end
 ---------------------------------------------------------------------------
 -- Pickers (copy kit from, add a category)
 ---------------------------------------------------------------------------
-function UI.Pick(title, entries, onPick, onCreate)
+-- opts.search: show a search box; opts.extra(text) may return extra entries
+-- for the typed text (e.g. "add this exact item").
+function UI.Pick(title, entries, onPick, onCreate, opts)
   local f = UI.picker
   if not f then
     f = T.Frame(UIParent, "FettlePicker")
@@ -138,7 +140,14 @@ function UI.Pick(title, entries, onPick, onCreate)
     box:SetPoint("TOPLEFT", 12, -42)
     box:SetPoint("BOTTOMRIGHT", -12, 12)
     T.Slot(box)
+    f.search = T.ItemEdit(f, 272); f.search:SetPoint("TOPLEFT", 14, -42); f.search:SetPlaceholder("Search, or shift-click an item")
+    f.search.onText = function() if f:IsShown() and f.Render then f:Render() end end
     f.list = T.List(box, {
+      head = { height = 28, create = function(r)
+        r.fs = T.Text(r, "SC", "brass"); r.fs:SetPoint("BOTTOMLEFT", 8, 6)
+        r.line = T.Line(r, 0.6); r.line:SetPoint("BOTTOMLEFT"); r.line:SetPoint("BOTTOMRIGHT")
+        r:EnableMouse(false)
+      end, fill = function(r, e) r.fs:SetText(e.text) end },
       pick = { height = 30, create = function(r)
         r.fs = T.Text(r, "Bold", "text"); r.fs:SetPoint("LEFT", 8, 4)
         r.sub = T.Text(r, "Small", "dim"); r.sub:SetPoint("LEFT", 8, -8)
@@ -162,8 +171,15 @@ function UI.Pick(title, entries, onPick, onCreate)
   end
   f.onCreate = onCreate
   f.onPick = onPick
+  opts = opts or {}
   f.box:ClearAllPoints()
-  f.box:SetPoint("TOPLEFT", 12, -42)
+  if opts.search then
+    f.search:Show(); f.search:SetText("")
+    f.box:SetPoint("TOPLEFT", 12, -72)
+  else
+    f.search:Hide()
+    f.box:SetPoint("TOPLEFT", 12, -42)
+  end
   if onCreate then
     f.newName:Show(); f.newBtn:Show()
     f.box:SetPoint("BOTTOMRIGHT", -12, 44)
@@ -172,13 +188,70 @@ function UI.Pick(title, entries, onPick, onCreate)
     f.box:SetPoint("BOTTOMRIGHT", -12, 12)
   end
   f.title:SetText(title)
-  local list = {}
-  for _, e in ipairs(entries) do list[#list + 1] = { kind = "pick", text = e.text, detail = e.detail, value = e.value } end
-  f.list:Render(list)
+  function f:Render()
+    local q = opts.search and ns.Trim(self.search:GetText() or "") or ""
+    local plain = q:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|H.-|h%[?(.-)%]?|h", "%1"):gsub("|r", "")
+    local low = plain:lower()
+    local list = {}
+    if opts.extra and q ~= "" then
+      for _, e in ipairs(opts.extra(q) or {}) do list[#list + 1] = { kind = "pick", text = e.text, detail = e.detail, value = e.value } end
+    end
+    local pendingHead
+    for _, e in ipairs(entries) do
+      if e.heading then
+        pendingHead = e.text
+      elseif low == "" or (e.text or ""):lower():find(low, 1, true) or (e.detail or ""):lower():find(low, 1, true) then
+        if pendingHead then list[#list + 1] = { kind = "head", text = pendingHead }; pendingHead = nil end
+        list[#list + 1] = { kind = "pick", text = e.text, detail = e.detail, value = e.value }
+      end
+    end
+    if #list == 0 and q ~= "" and opts.fallback then
+      for _, e in ipairs(opts.fallback(q) or {}) do list[#list + 1] = { kind = "pick", text = e.text, detail = e.detail, value = e.value } end
+    end
+    self.list:Render(list)
+  end
+  f:Render()
   f:ClearAllPoints()
   if UI.frame and UI.frame:IsShown() then f:SetPoint("TOPLEFT", UI.frame, "TOPRIGHT", 6, 0) else f:SetPoint("CENTER") end
   f:Show(); T.BringToFront(f)
+  if opts.search then f.search:SetFocus() end
   return f
+end
+
+-- Add to kit: the alt's suggestions first, then everything else; typing an
+-- item name or shift-clicking an item offers to add that exact item.
+function UI.KitPicker(c)
+  local suggested, others = ns.KitSuggestions(c)
+  local entries = {}
+  local who = (c.className or c.class or "this alt")
+  if #suggested > 0 then
+    entries[#entries + 1] = { heading = true, text = "Suggested for " .. who }
+    for _, x in ipairs(suggested) do
+      entries[#entries + 1] = { text = x.name, detail = (x.best and ("best now: " .. x.best .. "  ·  ") or "") .. "usually " .. x.qty, value = x }
+    end
+  end
+  entries[#entries + 1] = { heading = true, text = "Everything else" }
+  for _, x in ipairs(others) do
+    entries[#entries + 1] = { text = x.name, detail = x.best and ("best now: " .. x.best) or nil, value = x }
+  end
+  return UI.Pick("Add to " .. ns.DisplayName(c) .. "'s kit", entries, function(v)
+    if v.item then
+      UI.AddItemToKit(c, v.item, 1)
+    else
+      ns.AddLine(c, v.cat, v.qty or 1)
+    end
+  end, function(name)
+    local key = ns.Ref_NewCategory(name)
+    ns.AddLine(c, key, 1)
+    UI.EditCategory(key)
+  end, { search = true, extra = function(q)
+    if not q:find("|H") then return nil end
+    local _, name = ns.ParseItem(q)
+    if name then return { { text = "Add " .. name .. " (this exact item)", detail = "counts only this item", value = { item = q } } } end
+  end, fallback = function(q)
+    local _, name = ns.ParseItem(q)
+    if name then return { { text = "Add \"" .. name .. "\" as an exact item", detail = "nothing else matched", value = { item = q } } } end
+  end })
 end
 
 local function CategoryEntries()
@@ -359,22 +432,63 @@ end)
 ---------------------------------------------------------------------------
 -- Shared row kinds
 ---------------------------------------------------------------------------
+-- Section header: a raised band with a brass edge, a collapse arrow, the
+-- section name in Cinzel, an optional count on the right and a ... menu.
+-- Clicking the band collapses or expands the section (remembered per key).
+function UI.IsCollapsed(key) return key and ns.db.collapsed and ns.db.collapsed[key] or false end
+function UI.ToggleCollapsed(key)
+  if not key then return end
+  ns.db.collapsed = ns.db.collapsed or {}
+  ns.db.collapsed[key] = not ns.db.collapsed[key] or nil
+  UI.Refresh()
+end
+-- Adds a header to entries; returns true when the section is open.
+function UI.Section(entries, e)
+  e.kind = "section"
+  e.first = #entries == 0
+  e.collapsed = UI.IsCollapsed(e.key)
+  entries[#entries + 1] = e
+  return not e.collapsed
+end
+
 local function SectionKind()
-  return { height = 28, create = function(r)
-    r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(14, 14); r.icon:SetPoint("LEFT", 2, -2)
-    r.fs = T.Text(r, "SC", "soft"); r.fs:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-    r.note = T.Text(r, "Italic", "faint"); r.note:SetPoint("LEFT", r.fs, "RIGHT", 10, 0)
-    r.c1 = T.Text(r, "SCSmall", "faint"); r.c1:SetPoint("RIGHT", -112, -2)
-    r.c2 = T.Text(r, "SCSmall", "faint"); r.c2:SetPoint("RIGHT", -38, -2)
-    r.line = T.Line(r, 0.6); r.line:SetPoint("BOTTOMLEFT"); r.line:SetPoint("BOTTOMRIGHT")
-    r.menu = T.IconButton(r, "icon-dots.tga", 26, "More", nil); r.menu:SetPoint("RIGHT", -4, -1)
+  return { height = function(e) return e.first and 40 or 48 end, create = function(r)
+    r.band = CreateFrame("Frame", nil, r, "BackdropTemplate")
+    r.band:SetPoint("BOTTOMLEFT", 0, 4); r.band:SetPoint("BOTTOMRIGHT", 0, 4); r.band:SetHeight(34)
+    T.Box(r.band, "2a2723", "4a443b", 1)
+    r.band:EnableMouse(false)
+    r.edge = r.band:CreateTexture(nil, "ARTWORK"); r.edge:SetColorTexture(T.rgb(T.HEX.brass)); r.edge:SetWidth(3)
+    r.edge:SetPoint("TOPLEFT", 1, -1); r.edge:SetPoint("BOTTOMLEFT", 1, 1)
+    r.arrow = r.band:CreateTexture(nil, "ARTWORK"); r.arrow:SetSize(14, 14); r.arrow:SetPoint("LEFT", 12, 0)
+    r.icon = r.band:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(16, 16); r.icon:SetPoint("LEFT", r.arrow, "RIGHT", 8, 0)
+    r.fs = T.Text(r.band, "Name", "title"); r.fs:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
+    r.note = T.Text(r.band, "Italic", "faint"); r.note:SetPoint("LEFT", r.fs, "RIGHT", 12, -1)
+    r.count = T.Text(r.band, "SC", "soft"); r.count:SetPoint("RIGHT", -40, 0); r.count:SetJustifyH("RIGHT")
+    r.c1 = T.Text(r.band, "SCSmall", "faint"); r.c1:SetPoint("RIGHT", r, "RIGHT", -112, 2)
+    r.c2 = T.Text(r.band, "SCSmall", "faint"); r.c2:SetPoint("RIGHT", r, "RIGHT", -38, 2)
+    r.menu = T.IconButton(r.band, "icon-dots.tga", 26, "More", nil); r.menu:SetPoint("RIGHT", -6, 0)
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetColorTexture(1, 0.85, 0.6, 0.05); hl:SetAllPoints(r.band)
   end, fill = function(r, e)
     if e.menu then r.menu:Show(); r.menu:SetScript("OnClick", function(b) T.ShowMenu(b, e.menu()) end) else r.menu:Hide() end
     r.icon:SetTexture(T.MEDIA .. (e.icon or "icon-shield.tga"))
-    r.icon:SetVertexColor(T.rgb(T.HEX[e.hex or "soft"]))
-    r.fs:SetText(e.text); r.fs:SetTextColor(T.rgb(T.HEX[e.hex or "soft"]))
+    r.icon:SetVertexColor(T.rgb(T.HEX.brass))
+    r.fs:SetText(e.text)
     r.note:SetText(e.note or "")
-    r.c1:SetText(e.c1 or ""); r.c2:SetText(e.c2 or "")
+    r.count:SetText(e.count or "")
+    r.count:SetPoint("RIGHT", (e.c1 and not e.collapsed) and -170 or (e.menu and -40 or -12), 0)
+    local open = not e.collapsed
+    r.c1:SetText(open and e.c1 or ""); r.c2:SetText(open and e.c2 or "")
+    if e.key then
+      r.arrow:Show()
+      r.arrow:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up")
+      r:SetScript("OnClick", function() UI.ToggleCollapsed(e.key) end)
+      r.tip = { e.text, open and "Click to collapse." or "Click to expand." }
+    else
+      r.arrow:Hide()
+      r:SetScript("OnClick", nil)
+    end
+    r.icon:ClearAllPoints()
+    if e.key then r.icon:SetPoint("LEFT", r.arrow, "RIGHT", 8, 0) else r.icon:SetPoint("LEFT", 12, 0) end
   end }
 end
 
@@ -514,24 +628,12 @@ function UI.BuildChecklist(p)
   T.Slot(box)
   p.list = T.List(box, { section = SectionKind(), line = LineKind(), make = MakeKind(), task = TaskKind(), info = InfoKind() }, LISTW)
 
-  local bar = AddBar(p, "Add")
-  bar.item:SetPlaceholder("Category or item (shift-click an item)")
-  bar.qty:SetText("1")
-  local add
-  add = T.Button(bar, "Add", 54, function() UI.AddFromBar(UI.Selected(), bar, add) end)
-  add:SetPoint("LEFT", bar.qty, "RIGHT", 6, 0)
-  local cats = T.Button(bar, "Categories...", 106, function()
-    local c = UI.Selected()
-    UI.Pick("Add to " .. ns.DisplayName(c), CategoryEntries(),
-      function(key) ns.AddLine(c, key, tonumber(bar.qty:GetText()) or 1) end,
-      function(name)
-        local key = ns.Ref_NewCategory(name)
-        ns.AddLine(c, key, tonumber(bar.qty:GetText()) or 1)
-        UI.EditCategory(key)
-      end)
-  end)
-  cats:SetPoint("LEFT", add, "RIGHT", 6, 0)
-  local task = T.Edit(bar, 130); task:SetPoint("LEFT", cats, "RIGHT", 14, 0); task:SetPlaceholder("New task")
+  local bar = CreateFrame("Frame", nil, p)
+  bar:SetPoint("BOTTOMLEFT", 0, 0); bar:SetPoint("BOTTOMRIGHT", 0, 0); bar:SetHeight(30)
+  local addItem = T.Button(bar, "Add to kit...", 120, function() UI.KitPicker(UI.Selected()) end)
+  addItem:SetPoint("LEFT", 0, 0)
+  addItem.tip = { "Add to kit", "Pick from items suggested for this alt, or search for anything." }
+  local task = T.Edit(bar, 170); task:SetPoint("LEFT", addItem, "RIGHT", 24, 0); task:SetPlaceholder("New dungeon prep task")
   local addT
   addT = T.Button(bar, "Add task", 78, function()
     local t = ns.Trim(task:GetText())
@@ -555,22 +657,16 @@ function UI.BuildChecklist(p)
     end
     UI.Pick("Copy kit from", entries, function(o) ns.CopyKit(o, c); ns.Print("Copied kit from", ns.DisplayName(o)) end)
   end)
-  p.starter = T.Button(UIParent, "Starter", 72, function()
-    local c = UI.Selected()
-    if IsShiftKeyDown and IsShiftKeyDown() then ns.SeedKit(c); ns.Print("Kit reset to the", ns.ROLE_NAMES[ns.RoleOf(c)], "starter.")
-    else ns.Print("Shift-click Starter to replace this alt's kit with the starter for its class and role.") end
-  end)
-  p.starter.tip = { "Starter kit", "Shift-click to replace this alt's kit with the starter for its class and role." }
   p.run = T.Button(UIParent, "New run", 78, function() ns.NewRun(UI.Selected()) end)
   p.run.tip = { "New run", "Clears the ticked tasks." }
-  p.copy:Hide(); p.starter:Hide(); p.run:Hide()
+  p.copy:Hide(); p.run:Hide()
 
-  p:SetScript("OnShow", function() SetActions({ { button = p.copy }, { button = p.starter }, { button = p.run } }) end)
+  p:SetScript("OnShow", function() SetActions({ { button = p.copy }, { button = p.run } }) end)
 
   function p:Refresh()
     local c = UI.Selected()
     SetHeader(c, true)
-    SetActions({ { button = self.copy }, { button = self.starter }, { button = self.run } })
+    SetActions({ { button = self.copy }, { button = self.run } })
     local entries = {}
     if ns.IsBank(c) then
       self.summary:SetText(C("brass", "Bank alt") .. C("dim", ": no checklist"))
@@ -583,25 +679,33 @@ function UI.BuildChecklist(p)
     self.summary:SetText(ReadyCountsText(c))
     self.note:SetText(c.key == ns.Me().key and "" or ("stock as of " .. ns.Ago(c.lastSeen) .. ", bank " .. ns.Ago(c.bankSeen)))
 
-    local must, nice, waiting, tasks = {}, {}, {}, {}
+    local kit, tasks = {}, {}
     for _, x in ipairs(rows) do
-      if x.kind == "task" then tasks[#tasks + 1] = x
-      elseif x.status == "locked" then waiting[#waiting + 1] = x
-      elseif x.optional then nice[#nice + 1] = x
-      else must[#must + 1] = x end
+      if x.kind == "task" then tasks[#tasks + 1] = x else kit[#kit + 1] = x end
     end
 
     local function lineEntry(x)
       local e = { kind = "line", status = x.status, qty = x.qty, tags = UI.SourceTags(x), tip = LineTip(x, c) }
-      local best = x.best and C("dim", "  " .. x.best.n) or ""
+      local best = (x.best and not x.pinned) and C("dim", "  " .. x.best.n) or ""
       e.title = x.label .. best
-      e.haveText = HaveText(x.have, x.qty, x.optional and "optional" or x.status)
+      if x.pinned then e.title = x.label .. C("faint", "  (always this one)") end
+      e.haveText = HaveText(x.have, x.qty, x.status)
       if x.kind == "line" then
         e.onEdit = function(v) if v then ns.SetLineQty(c, x.idx, v) end end
         e.menu = function()
           local items = {}
-          if x.optional then items[#items + 1] = { text = "Move to Must bring", func = function() ns.ToggleLineOptional(c, x.idx) end }
-          else items[#items + 1] = { text = "Move to Nice to have", func = function() ns.ToggleLineOptional(c, x.idx) end } end
+          local def = ns.ref.categories[x.line.cat]
+          local bestNow = ns.BestRank(x.line.cat, c)
+          items[#items + 1] = { header = true, text = "Which item" }
+          items[#items + 1] = { text = "The best you can use" .. (bestNow and C("faint", "  (now " .. bestNow.n .. ")") or ""),
+            checked = not x.line.pin, func = function() ns.PinLine(c, x.idx, nil) end }
+          for i, r in ipairs(ns.RankChoices(c, x.line.cat)) do
+            if i <= 8 then
+              items[#items + 1] = { text = "Always " .. r.n .. (r.lvl and C("faint", "  level " .. r.lvl) or ""),
+                checked = x.line.pin and x.line.pin.n == r.n, func = function() ns.PinLine(c, x.idx, r) end }
+            end
+          end
+          items[#items + 1] = { sep = true }
           local catName = ns.ref.categories[x.line.cat] and ns.ref.categories[x.line.cat].name or "this"
           items[#items + 1] = { text = "Edit what counts as " .. catName .. "...", func = function() UI.EditCategory(x.line.cat) end }
           local sq = StarterQty(c, x.line.cat)
@@ -622,14 +726,17 @@ function UI.BuildChecklist(p)
       return e
     end
 
-    entries[#entries + 1] = { kind = "section", text = "MUST BRING", icon = "icon-shield.tga", hex = "soft", c1 = "HAVE", c2 = "CARRY" }
-    for _, x in ipairs(must) do entries[#entries + 1] = lineEntry(x) end
-    if #must == 0 then entries[#entries + 1] = { kind = "info", text = "Nothing yet. Add a category or item below, or shift-click Starter." } end
-    if #nice > 0 then
-      entries[#entries + 1] = { kind = "section", text = "NICE TO HAVE", note = "never counts as missing", icon = "icon-star.tga", hex = "faint" }
-      for _, x in ipairs(nice) do local e = lineEntry(x); e.dim = true; entries[#entries + 1] = e end
+    local kitReady = 0
+    for _, x in ipairs(kit) do if x.status == "ready" then kitReady = kitReady + 1 end end
+    if UI.Section(entries, { key = "kit", text = "Standard kit", icon = "icon-shield.tga", c1 = "HAVE", c2 = "CARRY",
+        count = (#kit > 0) and (kitReady .. " of " .. #kit .. " ready") or nil }) then
+      for _, x in ipairs(kit) do entries[#entries + 1] = lineEntry(x) end
+      if #kit == 0 then entries[#entries + 1] = { kind = "info", text = "Empty. Click Add to kit... to choose what " .. ns.DisplayName(c) .. " should always carry." } end
     end
-    entries[#entries + 1] = { kind = "section", text = "BEFORE YOU GO", icon = "icon-checklist.tga", hex = "soft", menu = function()
+    local todo = 0
+    for _, x in ipairs(tasks) do if x.status ~= "done" and not x.optional then todo = todo + 1 end end
+    local prepOpen = UI.Section(entries, { key = "prep", text = "Dungeon preparation", icon = "tab-checklist.tga",
+      count = (#tasks > 0) and (todo == 0 and "all done" or (todo .. " to do")) or nil, menu = function()
       local items = { { header = true, text = "Tasks for every alt" } }
       for _, t in ipairs(ns.ref.tasks) do
         items[#items + 1] = { text = t.text, checked = not t.off, func = function() ns.Ref_SetTaskOff(t.id, not t.off) end }
@@ -640,7 +747,8 @@ function UI.BuildChecklist(p)
       end
       items[#items + 1] = { text = "Add a task: type it in the box below", hex = "faint" }
       return items
-    end }
+    end })
+    if not prepOpen then tasks = {} end
     for _, x in ipairs(tasks) do
       local e = { kind = "task", row = x, onToggle = function() ns.ToggleTick(c, x.id) end }
       if x.id == "quests" and ns.DJ() then
@@ -710,7 +818,7 @@ function UI.BuildWishlist(p)
       bar.item:SetPlaceholder("Item or category name")
       self.summary:SetText(C("brass", "Bank pool tags"))
       self.note:SetText("Other alts always send these to " .. ns.DisplayName(c))
-      entries[#entries + 1] = { kind = "section", text = "ALWAYS SEND TO THE BANK", icon = "icon-star.tga", hex = "brass" }
+      UI.Section(entries, { text = "Always send to the bank", icon = "icon-star.tga" })
       local list = {}
       for _, x in pairs(ns.db.bankTags.items) do list[#list + 1] = { text = x.n, kind = "item", value = x.n } end
       for key in pairs(ns.db.bankTags.cats) do
@@ -731,10 +839,12 @@ function UI.BuildWishlist(p)
     if auto then self.sugg:Show(); self.sugg.label:Show(); self.sugg:SetChecked(c.suggest ~= false) else self.sugg:Hide(); self.sugg.label:Hide() end
     self.summary:SetText(C("text", "Collecting"))
     self.note:SetText("Other alts see these at the mailbox and bank")
-    entries[#entries + 1] = { kind = "section", text = "WISH LIST", icon = "tab-wish.tga", hex = "soft", c1 = "HAVE", c2 = "WANT" }
     local keys = {}
     for k in pairs(c.wish) do keys[#keys + 1] = k end
     table.sort(keys)
+    local wishOpen = UI.Section(entries, { key = "wish", text = "Wish list", icon = "tab-wish.tga", c1 = "HAVE", c2 = "WANT",
+      count = #keys > 0 and (#keys .. (#keys == 1 and " item" or " items")) or nil })
+    if not wishOpen then keys = {} end
     for _, k in ipairs(keys) do
       local w = c.wish[k]
       local want = { n = w.n, id = w.id }
@@ -753,10 +863,9 @@ function UI.BuildWishlist(p)
         qty = w.q or 0, onEdit = function(v) if v then ns.SetWishQty(c, w.n, v) end end,
         menu = function() return { { text = "Remove from wish list", hex = "orange", func = function() ns.RemoveWish(c, w.n) end } } end }
     end
-    if #keys == 0 then entries[#entries + 1] = { kind = "info", text = "Nothing on the wish list. Add materials this alt is collecting below." } end
+    if #keys == 0 and wishOpen then entries[#entries + 1] = { kind = "info", text = "Nothing on the wish list. Add anything this alt is collecting below: other alts are prompted to send it." } end
     local sugg = ns.Suggestions(c)
-    if #sugg > 0 then
-      entries[#entries + 1] = { kind = "section", text = "SUGGESTED", note = "from professions", icon = "icon-star.tga", hex = "faint" }
+    if #sugg > 0 and UI.Section(entries, { key = "wishsugg", text = "Suggested", note = "from professions", icon = "icon-star.tga" }) then
       for _, s in ipairs(sugg) do
         entries[#entries + 1] = { kind = "line", status = "optional", title = s.n, tags = { { "suggested", "dim" } }, dim = true,
           haveText = HaveText(s.have, s.q, "optional"), tip = { s.n, s.reason or "" },
@@ -813,8 +922,8 @@ function UI.BuildCrafting(p)
       local skill = c.profs[prof] or 0
       local max = c.profMax and c.profMax[prof]
       local shopping = plan and plan.shop
-      entries[#entries + 1] = { kind = "section", text = string.upper(prof) .. "  " .. skill .. (max and (" / " .. max) or ""),
-        note = main and ("* " .. ns.MainNoun(prof)) or nil, icon = "icon-fire.tga", hex = main and "brass" or "soft",
+      local open = UI.Section(entries, { key = "craft:" .. prof, text = prof, count = skill .. (max and (" / " .. max) or ""),
+        note = main and ns.MainNoun(prof) or nil, icon = "icon-fire.tga",
         menu = function()
           local items = {}
           if shopping and #shopping > 0 then
@@ -825,9 +934,13 @@ function UI.BuildCrafting(p)
           items[#items + 1] = { text = main and ("Stop being the " .. ns.MainNoun(prof)) or ("Make " .. ns.DisplayName(c) .. " the " .. ns.MainNoun(prof)),
             func = function() ns.SetMain(c, prof, not main) end }
           return items
-        end }
+        end })
+      if not open then plan = nil end
+      if open and not main then
+        entries[#entries + 1] = { kind = "info", text = "Not your " .. ns.MainNoun(prof) .. ", so other alts aren't asked to send mats for it. Use the ... menu to make it the main." }
+      end
       -- what to make for other alts (mains only)
-      if main then
+      if main and open then
         local any = false
         for _, m in ipairs(make) do
           if m.prof == prof and m.kind == "gap" then entries[#entries + 1] = { kind = "make", make = m }; any = true end
@@ -915,9 +1028,9 @@ function UI.BuildAlts(p)
   box:SetPoint("TOPLEFT", 0, -28)
   box:SetPoint("BOTTOMRIGHT", 0, 26)
   T.Slot(box)
-  p.list = T.List(box, { alt = AltKind(), info = InfoKind() }, LISTW)
+  p.list = T.List(box, { section = SectionKind(), alt = AltKind(), info = InfoKind() }, LISTW)
   p.foot = T.Text(p, "Italic", "faint"); p.foot:SetPoint("BOTTOMLEFT", 4, 6)
-  p.foot:SetText("* Mains get every material for their profession from your other alts, and make consumables for everyone.")
+  p.foot:SetText("* Mains: your other alts are asked to send them the mats for their next skill-ups.")
 
   function p:Refresh()
     SetHeader(ns.Me(), false)
@@ -935,10 +1048,27 @@ function UI.BuildAlts(p)
     self.mains:Set(tags)
     local chars = {}
     for _, c in pairs(ns.db.chars) do chars[#chars + 1] = ns.GetChar(c.key) end
-    table.sort(chars, function(a, b) return ns.DisplayName(a) < ns.DisplayName(b) end)
+    local function group(c) return (c.realm or "?") .. " · " .. (c.faction or "?") end
+    local here = group(me)
+    table.sort(chars, function(a, b)
+      local ga, gb = group(a), group(b)
+      if ga ~= gb then
+        if ga == here then return true elseif gb == here then return false end
+        return ga < gb
+      end
+      return ns.DisplayName(a) < ns.DisplayName(b)
+    end)
     local entries = {}
+    local curGroup, open
     for _, c in ipairs(chars) do
-      entries[#entries + 1] = { kind = "alt", char = c, menu = function()
+      local g = group(c)
+      if g ~= curGroup then
+        curGroup = g
+        local n = 0
+        for _, o in ipairs(chars) do if group(o) == g then n = n + 1 end end
+        open = UI.Section(entries, { key = "alts:" .. g, text = g, icon = "tab-alts.tga", count = n .. (n == 1 and " alt" or " alts") })
+      end
+      if open then entries[#entries + 1] = { kind = "alt", char = c, menu = function()
         local items = { { header = true, text = "Make " .. ns.DisplayName(c) .. " the main for" } }
         items[#items + 1] = { text = "Open " .. ns.DisplayName(c) .. "'s crafting", func = function() UI.selectedKey = c.key; UI.Show(3) end }
         local list = {}
@@ -965,7 +1095,7 @@ function UI.BuildAlts(p)
           else ns.Print("Hold Shift and choose Forget again to delete " .. ns.DisplayName(c) .. ".") end
         end }
         return items
-      end }
+      end } end
     end
     self.list:Render(entries)
   end
@@ -974,6 +1104,16 @@ end
 ---------------------------------------------------------------------------
 -- Adding from the bar: categories, exact items, or "count it as..."
 ---------------------------------------------------------------------------
+-- Add an item (name or link) to a kit: offers its category, the exact item, or
+-- "count it as" a category when Fettle doesn't know it.
+function UI.AddItemToKit(c, text, qty, anchor)
+  local box = { t = text }
+  function box:GetText() return self.t end
+  function box:SetText(v) self.t = v end
+  local q = { GetText = function() return tostring(qty or 1) end }
+  return UI.AddFromBar(c, { item = box, qty = q }, anchor or UI.frame)
+end
+
 function UI.AddFromBar(c, bar, anchor)
   local text = bar.item:GetText()
   local qty = tonumber(bar.qty:GetText()) or 1
@@ -1302,67 +1442,89 @@ function UI.BuildOptions(p)
   box:SetPoint("TOPLEFT", 0, -4)
   box:SetPoint("BOTTOMRIGHT", 0, 38)
   T.Slot(box)
-  p.checks, p.nums = {}, {}
-  local col = { x = 16, y = -12 }
-  local function at(x) col.x = x; col.y = -12 end
-  local function head(text)
-    local fs = T.Text(box, "SC", "brass"); fs:SetPoint("TOPLEFT", col.x, col.y); fs:SetText(text)
-    col.y = col.y - 26
+  local CTRLW = 260
+  local function set(key, v) s()[key] = v; ns.Changed("settings") end
+  local function get(key) return s()[key] and true or false end
+
+  -- one row: title and a line of explanation on the left, the control on the right
+  local function rowText(r)
+    r.title = T.Text(r, "Bold", "text"); r.title:SetPoint("TOPLEFT", 16, -8)
+    r.desc = T.Text(r, "Small", "dim"); r.desc:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -3)
+    r.desc:SetWidth(LISTW - CTRLW - 50); r.desc:SetJustifyH("LEFT")
+    r.line = T.Line(r, 0.4); r.line:SetPoint("BOTTOMLEFT", 12, 0); r.line:SetPoint("BOTTOMRIGHT", -12, 0)
+    r:EnableMouse(false)
   end
-  local function check(key, label, onToggle)
-    local c = T.Check(box, label, onToggle or function(on) s()[key] = on; ns.Changed("settings") end)
-    c:SetPoint("TOPLEFT", col.x + 2, col.y)
-    c.key = key
-    p.checks[#p.checks + 1] = c
-    col.y = col.y - 25
-    return c
-  end
-  local function num(key, label)
-    local e = T.Edit(box, 44, true, 22)
-    e:SetPoint("TOPLEFT", col.x + 2, col.y)
-    e:SetScript("OnEnterPressed", function(self) self:ClearFocus(); local v = tonumber(self:GetText()); if v then s()[key] = v; ns.Changed("settings") end end)
-    local fs = T.Text(box, "Body", "text"); fs:SetPoint("LEFT", e, "RIGHT", 10, 0); fs:SetText(label)
-    e.key = key
-    p.nums[#p.nums + 1] = e
-    col.y = col.y - 27
-  end
-  at(16)
-  head("WHEN TO SHOW FETTLE")
-  check("popupOnDungeon", "Open the checklist in dungeons if anything's missing")
-  check("resetTicksOnLeave", "Clear ticked tasks after a dungeon")
-  check("hintsBank", "Hints at the bank")
-  check("hintsMail", "Hints at the mailbox")
-  check("hintsVendor", "Hints at vendors")
-  col.y = col.y - 8
-  head("NUMBERS")
-  num("surplusCap", "Surplus cap (times the kit amount)")
-  num("minDurability", "Durability % for 'Gear repaired'")
-  num("minFreeSlots", "Free bag slots wanted")
-  num("suggestCrafts", "Skill-up crafts per recipe")
-  num("suggestMaxRecipes", "Skill-up recipes per profession")
-  col.y = col.y - 8
-  head("OTHER")
-  p.mm = T.Check(box, "Show minimap button", function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end)
-  p.mm:SetPoint("TOPLEFT", col.x + 2, col.y)
-  col.y = col.y - 25
-  check("receiveBugs", "Receive bug reports (I make Fettle)")
-  at(math.floor(CW / 2) + 10)
-  head("WHAT TO SUGGEST")
-  check("hintKits", "Items missing from alts' kits")
-  check("hintWish", "Wish list items")
-  check("planWants", "Mats for levelling plans")
-  check("hintLearn", "Recipes another alt can learn")
-  check("hintMains", "Mats for profession mains")
-  check("deGear", "Green and blue gear for the main enchanter")
-  check("hintsBags", "Bigger bags for alts")
-  check("autoSuggest", "Wish list mats from professions")
-  col.y = col.y - 8
-  head("SEND TO THE BANK ALT")
-  check("bankRecipes", "Recipes no alt can learn yet")
-  check("bankMats", "Trade goods nobody needs or collects")
-  check("bankSurplus", "Consumables over the surplus cap")
-  check("bankTagged", "Items and categories tagged for the bank")
-  check("bankGear", "Tradeable gear above every alt's level")
+  local multiCache = {}
+  local kinds = {
+    section = SectionKind(),
+    multi = { height = 52, create = function(r) rowText(r) end, fill = function(r, e)
+      r.title:SetText(e.title); r.desc:SetText(e.desc or "")
+      if rawget(r, "ctrl") then r.ctrl:Hide() end
+      local ctrl = multiCache[e.id]
+      if not ctrl then
+        ctrl = T.MultiSelect(r, CTRLW, e.opts, e.get or get, e.set or set)
+        multiCache[e.id] = ctrl
+      end
+      ctrl:SetParent(r); ctrl:ClearAllPoints(); ctrl:SetPoint("RIGHT", -16, 0); ctrl:Show(); ctrl:Update()
+      r.ctrl = ctrl
+    end },
+    nums = { height = 52, create = function(r)
+      rowText(r)
+      r.boxes = {}
+      for i = 1, 3 do
+        local ed = T.Edit(r, 44, true, 22)
+        ed:SetScript("OnEnterPressed", function(self) self:ClearFocus(); local v = tonumber(self:GetText()); if v and self.key then set(self.key, v) end end)
+        ed:SetScript("OnEditFocusLost", function(self) local v = tonumber(self:GetText()); if v and self.key and v ~= s()[self.key] then set(self.key, v) end end)
+        ed.label = T.Text(r, "Small", "soft")
+        r.boxes[i] = ed
+      end
+    end, fill = function(r, e)
+      r.title:SetText(e.title); r.desc:SetText(e.desc or "")
+      local x = -16
+      for i = 3, 1, -1 do
+        local ed, n = r.boxes[i], e.nums[i]
+        if n then
+          ed.key = n[1]; if not ed:HasFocus() then ed:SetText(tostring(s()[n[1]] or "")) end
+          ed:ClearAllPoints(); ed:SetPoint("RIGHT", x, 0); ed:Show()
+          ed.label:SetText(n[2]); ed.label:ClearAllPoints(); ed.label:SetPoint("RIGHT", ed, "LEFT", -6, 0); ed.label:Show()
+          x = x - 44 - 12 - T.Width(ed.label, 60) - 14
+        else ed:Hide(); ed.label:Hide() end
+      end
+    end },
+    toggle = { height = 52, create = function(r)
+      rowText(r)
+      r.check = T.Check(r, "", function(on) if r.onToggle then r.onToggle(on) end end)
+      r.check:SetPoint("RIGHT", -16, 0)
+    end, fill = function(r, e)
+      r.title:SetText(e.title); r.desc:SetText(e.desc or "")
+      r.onToggle = e.onToggle
+      r.check:SetChecked(e.checked and true or false)
+    end },
+  }
+  p.list = T.List(box, kinds, LISTW)
+
+  local SUGGEST = {
+    { "planWants", "Skill-up mats for profession mains", "Skill-ups" },
+    { "hintKits", "Missing standard kit items", "Kit" },
+    { "hintWish", "Wish list items", "Wish lists" },
+    { "hintLearn", "Recipes another alt can learn", "Recipes" },
+    { "hintMains", "All of a main's materials, not just skill-ups", "All mats" },
+    { "deGear", "Green and blue gear for the main enchanter", "Gear to DE" },
+    { "hintsBags", "Bigger bags for alts", "Bags" },
+    { "autoSuggest", "Profession mats suggested for wish lists", "Prof. mats" },
+  }
+  local WHERE = { { "hintsMail", "At the mailbox", "Mailbox" }, { "hintsBank", "At the bank", "Bank" }, { "hintsVendor", "At vendors", "Vendors" } }
+  local BANK = {
+    { "bankRecipes", "Recipes no alt can learn yet", "Recipes" },
+    { "bankMats", "Trade goods nobody needs or collects", "Spare mats" },
+    { "bankSurplus", "Consumables over the surplus cap", "Surplus" },
+    { "bankTagged", "Items and categories tagged for the bank", "Tagged" },
+    { "bankGear", "Tradeable gear above every alt's level", "High gear" },
+  }
+  local DUNGEON = {
+    { "popupOnDungeon", "Open the checklist in a dungeon if anything's missing", "Open checklist" },
+    { "resetTicksOnLeave", "Clear ticked tasks after a dungeon", "Clear ticks" },
+  }
 
   local report = T.Button(p, "Report a bug", 120, function() UI.BugWindow("report") end, 24)
   report.tip = { "Report a bug", "Sends a report to the Fettle developer in game (when you're both online)." }
@@ -1381,9 +1543,31 @@ function UI.BuildOptions(p)
     UI.header.name:SetText(C("parch", "Options"))
     UI.header.info:SetText(C("soft", "Shared by all your alts"))
     SetActions({})
-    for _, c in ipairs(self.checks) do c:SetChecked(s()[c.key] and true or false) end
-    for _, e in ipairs(self.nums) do if not e:HasFocus() then e:SetText(tostring(s()[e.key] or "")) end end
-    self.mm:SetChecked(not ns.db.minimap.hide)
+    local e = {}
+    if UI.Section(e, { key = "opt:send", text = "Sending items between alts", icon = "icon-starfill.tga" }) then
+      e[#e + 1] = { kind = "multi", id = "where", title = "Show suggestions", desc = "Where Fettle's Dispatch panel opens.", opts = WHERE }
+      e[#e + 1] = { kind = "multi", id = "suggest", title = "What to suggest",
+        desc = "What other alts are asked to send. Skill-ups, kit and wish lists cover most needs.", opts = SUGGEST }
+      e[#e + 1] = { kind = "multi", id = "bank", title = "Send to the bank alt", desc = "Only if one of your alts has the Bank alt role.", opts = BANK }
+      e[#e + 1] = { kind = "nums", title = "Amounts", desc = "Surplus is anything over this many times the kit amount.",
+        nums = { { "surplusCap", "Surplus cap" } } }
+    end
+    if UI.Section(e, { key = "opt:dungeon", text = "Dungeon preparation", icon = "tab-checklist.tga" }) then
+      e[#e + 1] = { kind = "multi", id = "dungeon", title = "In dungeons", desc = "What happens when you zone in and out.", opts = DUNGEON }
+      e[#e + 1] = { kind = "nums", title = "Ready when", desc = "Targets for the automatic tasks.",
+        nums = { { "minDurability", "Durability %" }, { "minFreeSlots", "Free slots" }, { "minCampMinutes", "Camp buff min" } } }
+    end
+    if s().autoSuggest and UI.Section(e, { key = "opt:prof", text = "Profession suggestions", icon = "icon-fire.tga" }) then
+      e[#e + 1] = { kind = "nums", title = "How much to suggest", desc = "For 'Profession mats suggested for wish lists'.",
+        nums = { { "suggestCrafts", "Crafts per recipe" }, { "suggestMaxRecipes", "Recipes per profession" } } }
+    end
+    if UI.Section(e, { key = "opt:other", text = "Other", icon = "tab-options.tga" }) then
+      e[#e + 1] = { kind = "toggle", title = "Minimap button", desc = "Click it to open Fettle.", checked = not ns.db.minimap.hide,
+        onToggle = function(on) ns.db.minimap.hide = not on; if ns.UpdateMinimap then ns.UpdateMinimap() end end }
+      e[#e + 1] = { kind = "toggle", title = "Receive bug reports", desc = "Only for whoever makes Fettle: guildies' reports come to you.",
+        checked = s().receiveBugs, onToggle = function(on) set("receiveBugs", on) end }
+    end
+    self.list:Render(e)
     local n = #(ns.db.bugInbox or {})
     if ns.IsDev() or n > 0 then self.inboxBtn:Show(); self.inboxBtn:SetLabel("Bug reports (" .. n .. ")") else self.inboxBtn:Hide() end
   end

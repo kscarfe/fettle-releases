@@ -75,6 +75,42 @@ function T.Frame(parent, name, kind)
   return f
 end
 
+-- Multi-select dropdown: a button showing what's on; clicking opens a menu of
+-- checkboxes that stays open while you tick. opts = { { key, label, short } },
+-- get(key) -> bool, set(key, bool).
+function T.MultiSelect(parent, width, opts, get, set, onChange)
+  local b = T.Button(parent, "", width, nil, 26)
+  b.label:ClearAllPoints(); b.label:SetPoint("LEFT", 10, 0); b.label:SetPoint("RIGHT", -26, 0)
+  b.label:SetJustifyH("LEFT"); b.label:SetFontObject(T.Font.Body); b.label:SetTextColor(rgb(T.HEX.text))
+  b:SetScript("OnMouseDown", nil); b:SetScript("OnMouseUp", nil)
+  b.arrow = b:CreateTexture(nil, "OVERLAY"); b.arrow:SetSize(14, 14); b.arrow:SetPoint("RIGHT", -8, 0)
+  b.arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+  if b.arrow.SetRotation then b.arrow:SetRotation(-math.pi / 2) end
+  function b:Update()
+    local on, n = {}, 0
+    for _, o in ipairs(opts) do if get(o[1]) then on[#on + 1] = o[3] or o[2] end; n = n + 1 end
+    local text
+    if #on == 0 then text = "None"
+    elseif #on == n and n > 2 then text = "All " .. n
+    elseif #on <= 2 then text = table.concat(on, ", ")
+    else text = on[1] .. ", " .. on[2] .. " +" .. (#on - 2) end
+    self:SetLabel(text)
+  end
+  b:SetScript("OnClick", function(self)
+    T.ShowMenu(self, function()
+      local items = {}
+      for _, o in ipairs(opts) do
+        local key = o[1]
+        items[#items + 1] = { text = o[2], checkable = true, checked = get(key), keepOpen = true,
+          func = function() set(key, not get(key)); b:Update(); if onChange then onChange(key) end end }
+      end
+      return items
+    end)
+  end)
+  b:Update()
+  return b
+end
+
 -- Fettle's own windows. Each gets its own band of frame levels (100 apart) so
 -- their parts never interleave, and the one shown or clicked last comes to the front.
 local windows = {}
@@ -247,7 +283,7 @@ function T.Edit(parent, w, numeric, h)
   local function upd() if e:GetText() == "" and not e:HasFocus() then ph:Show() else ph:Hide() end end
   e:SetScript("OnEditFocusGained", function(self) ph:Hide(); if self.onFocus then self.onFocus(self) end end)
   e:SetScript("OnEditFocusLost", upd)
-  e:SetScript("OnTextChanged", upd)
+  e:SetScript("OnTextChanged", function(self, user) upd(); if self.onText then self.onText(self:GetText(), user) end end)
   function e:SetPlaceholder(t) ph:SetText(t or ""); upd() end
   return e
 end
@@ -376,7 +412,12 @@ end
 ---------------------------------------------------------------------------
 -- Pop-up menu (one shared). items: { text=, func=, hex=, header=true, sep=true, checked= }
 ---------------------------------------------------------------------------
+-- items may be a table or a function returning one. An item with keepOpen
+-- runs its func and redraws the menu (for multi-select lists); checkable
+-- items show an empty box when unchecked.
 function T.ShowMenu(anchor, items)
+  local source = items
+  if type(items) == "function" then items = items() end
   local m = T.menu
   if not m then
     m = T.Frame(UIParent, "FettleMenu")
@@ -440,9 +481,15 @@ function T.ShowMenu(anchor, items)
       r:SetHeight(24); r:EnableMouse(true)
       r.fs:SetFontObject(T.Font.Body)
       r.fs:SetTextColor(rgb(T.HEX[it.hex or "text"] or it.hex))
-      r.fs:SetText((it.checked and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t " or "") .. it.text)
+      local box = it.checked and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t "
+        or (it.checkable and "|TInterface\\Buttons\\UI-CheckBox-Up:14:14|t " or "")
+      r.fs:SetText(box .. it.text)
       local fn = it.func
-      r:SetScript("OnClick", function() m:Hide(); if fn then fn() end end)
+      if it.keepOpen then
+        r:SetScript("OnClick", function() if fn then fn() end; T.ShowMenu(anchor, source) end)
+      else
+        r:SetScript("OnClick", function() m:Hide(); if fn then fn() end end)
+      end
       y = y - 24
     end
     width = math.max(width, T.Width(r.fs, 160) + 34)

@@ -3,7 +3,7 @@ local ADDON, ns = ...
 ns = ns or {}
 _G.Fettle = ns
 
-ns.VERSION = "0.8.4"
+ns.VERSION = "0.9.0"
 ns.ICON = "Interface\\AddOns\\Fettle\\Media\\icon"
 ns.ROLES = { "TANK", "HEALER", "MELEE", "RANGED", "CASTER", "BANK" }
 ns.ROLE_NAMES = { TANK = "Tank", HEALER = "Healer", MELEE = "Melee DPS", RANGED = "Ranged DPS", CASTER = "Caster DPS", BANK = "Bank alt" }
@@ -89,12 +89,12 @@ ns.DEFAULT_SETTINGS = {
   hintsBank = true,
   hintsMail = true,
   hintsVendor = true,
-  hintsBags = true,
-  deGear = true,
+  hintsBags = false,
+  deGear = false,
   hintKits = true,
   hintWish = true,
-  hintLearn = true,
-  hintMains = true,
+  hintLearn = false,
+  hintMains = false,
   receiveBugs = false,
   resetTicksOnLeave = true,  -- clear manual ticks when leaving a dungeon
   autoSuggest = false,       -- profession-based wish list suggestions (off: wishlist only)
@@ -131,6 +131,23 @@ function ns.InitDB()
   db.bankTags = db.bankTags or {}
   db.bankTags.items = db.bankTags.items or {}
   db.bankTags.cats = db.bankTags.cats or {}
+  db.collapsed = db.collapsed or {}
+  -- 0.9: four building blocks. Kits keep their Must bring lines (Nice to have
+  -- goes), and the extra mail suggestions start off.
+  if (db.schema or 1) < 2 then
+    for _, c in pairs(db.chars) do
+      if c.kit then
+        local keep = {}
+        for _, l in ipairs(c.kit) do if not l.optional then keep[#keep + 1] = l end end
+        c.kit = keep
+      end
+      if c.extras and c.extras.items then
+        for k, x in pairs(c.extras.items) do if x.optional then c.extras.items[k] = nil end end
+      end
+    end
+    for _, k in ipairs({ "hintLearn", "hintMains", "deGear", "hintsBags", "autoSuggest" }) do db.settings[k] = false end
+    db.schema = 2
+  end
   ns.db = db
   return db
 end
@@ -346,7 +363,7 @@ local HELP = {
   "/fettle want <item> [qty] - add an item to this alt's wish list",
   "/fettle unwant <item> - remove it from the wish list",
   "/fettle role auto|tank|healer|melee|ranged|caster|bank - set this alt's role",
-  "/fettle starter - replace this alt's kit with the starter for its class and role",
+  "/fettle starter - replace this alt's kit with every suggestion for its class and role",
   "/fettle copy <alt name> - copy another alt's kit onto this alt",
   "/fettle bank <item or category> - always send this to the bank alt (/fettle unbank to undo)",
   "/fettle main <profession> - make this alt the main for a profession (again to undo)",
