@@ -45,7 +45,7 @@ function ns.Stock(holder, want, forChar)
     local id = type(key) == "number" and key or nil
     if rec.n and ns.WantMatches(want, rec.n, id, forChar) then
       b = b + (rec.b or 0); k = k + (rec.k or 0); m = m + (rec.m or 0)
-      items[#items + 1] = { id = id, key = key, n = rec.n, b = rec.b or 0, k = rec.k or 0, m = rec.m or 0, bound = rec.bound }
+      items[#items + 1] = { id = id, key = key, n = rec.n, b = rec.b or 0, k = rec.k or 0, m = rec.m or 0, bound = rec.bound, boundK = rec.boundK }
     end
   end
   return b, k, m, items
@@ -517,7 +517,7 @@ function ns.BankPool(me, field, used)
   for key, rec in pairs(me.inv) do
     local id = type(key) == "number" and key or nil
     local avail = (rec[field] or 0) - (used[key] or 0)
-    if avail > 0 and rec.n and not (field == "b" and rec.bound) then
+    if avail > 0 and rec.n and not ns.IsBound(rec, field) then
       local give, reason = 0, nil
       local keep = ownNeed(me, rec.n, id) + ns.FirstAidKeep(me, rec.n)
       if ns.FunnelTarget(me, rec) then
@@ -692,7 +692,7 @@ local function funnelPlan(me, field, used)
   local byMain = {}
   for key, rec in pairs(me.inv) do
     local avail = (rec[field] or 0) - (used[key] or 0)
-    if avail > 0 and rec.n and not (field == "b" and rec.bound) then
+    if avail > 0 and rec.n and not ns.IsBound(rec, field) then
       local main, prof, why = ns.FunnelTarget(me, rec)
       if main and main.key ~= me.key then
         local id = type(key) == "number" and key or nil
@@ -960,6 +960,12 @@ end
 -- Hints (bank / mailbox / vendor)
 ---------------------------------------------------------------------------
 -- Items in my bags (field "b") or bank ("k") that fill target's open wants.
+-- Soulbound copies can't be mailed, wherever they are (bags or bank).
+function ns.IsBound(rec, field)
+  if field == "k" then return rec.boundK and true or false end
+  return rec.bound and true or false
+end
+
 local function giveList(me, field, target, used)
   local items = {}
   for _, w in ipairs(ns.OpenWants(target)) do
@@ -967,7 +973,7 @@ local function giveList(me, field, target, used)
     local _, _, _, mine = ns.Stock(me, w.want, target)
     for _, it in ipairs(mine) do
       local avail = (it[field] or 0) - (used[it.key] or 0)
-      if field == "b" and it.bound then avail = 0 end
+      if ns.IsBound(it, field) then avail = 0 end
       if left > 0 and avail > 0 then
         local give = math.min(left, avail)
         used[it.key] = (used[it.key] or 0) + give
@@ -984,7 +990,7 @@ local function learnables(me, field, target, used)
   local items = {}
   for key, rec in pairs(me.inv) do
     local avail = (rec[field] or 0) - (used[key] or 0)
-    if avail > 0 and rec.cls == ns.CLASS_RECIPE and not (field == "b" and rec.bound)
+    if avail > 0 and rec.cls == ns.CLASS_RECIPE and not ns.IsBound(rec, field)
        and canLearn(target, rec) and not canLearn(me, rec) then
       used[key] = (used[key] or 0) + 1
       items[#items + 1] = { id = type(key) == "number" and key or nil, n = rec.n, give = 1, reason = "can learn this recipe" }
@@ -1002,7 +1008,7 @@ function ns.BagUpgrades(me, field, used)
   for key, rec in pairs(me.inv or {}) do
     local slots = rec.slots or (type(key) == "number" and ns.db.bagSlots and ns.db.bagSlots[key])
     if rec.cls == ns.CLASS_CONTAINER and (rec.subcls or 0) == 0 and slots and slots > 0
-       and not (field == "b" and rec.bound) then
+       and not ns.IsBound(rec, field) then
       for _ = 1, (rec[field] or 0) - (used[key] or 0) do spares[#spares + 1] = { key = key, n = rec.n, slots = slots } end
     end
   end
@@ -1015,7 +1021,8 @@ function ns.BagUpgrades(me, field, used)
   local pool = ns.Siblings(me)
   table.insert(pool, 1, me)
   for _, o in ipairs(pool) do
-    if o.bagSizes and #o.bagSizes > 0 then
+    -- records from before 0.8.4 could count special bags as ordinary or empty
+    if o.bagSizes and o.bagSizesV == 2 and #o.bagSizes > 0 then
       local sz = {}
       for i, n in ipairs(o.bagSizes) do sz[i] = n end
       alts[#alts + 1] = { c = o, sizes = sz }

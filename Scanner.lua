@@ -140,6 +140,7 @@ local function setField(c, field, counts)
   for _, rec in pairs(c.inv) do
     rec[field] = nil
     if field == "b" then rec.bound = nil end
+    if field == "k" then rec.boundK = nil end
   end
   for id, x in pairs(counts) do
     local rec = c.inv[id]
@@ -148,6 +149,7 @@ local function setField(c, field, counts)
     rec[field] = x.c
     if x.meta then rec.cls, rec.subcls, rec.minLvl, rec.req, rec.slots, rec.quality, rec.equip = x.meta.cls, x.meta.subcls, x.meta.minLvl, x.meta.req, x.meta.slots, x.meta.quality, x.meta.equip end
     if field == "b" and x.bound then rec.bound = true end
+    if field == "k" and x.bound then rec.boundK = true end
   end
   for id, rec in pairs(c.inv) do
     if not rec.b and not rec.k and not rec.m then c.inv[id] = nil end
@@ -195,19 +197,29 @@ function ns.ScanBags()
     local _, bagType
     if C_Container and C_Container.GetContainerNumFreeSlots then _, bagType = safe(C_Container.GetContainerNumFreeSlots, bag)
     elseif GetContainerNumFreeSlots then _, bagType = safe(GetContainerNumFreeSlots, bag) end
+    -- the bag's own item type is the reliable test: only Container / Bag (1/0)
+    -- is an ordinary bag; quivers, ammo pouches and profession bags are not
+    local special = bagType and bagType ~= 0
+    if id then
+      local info = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+      if info then
+        local _, _, _, _, _, cls, subcls = safe(info, id)
+        if cls and (cls ~= ns.CLASS_CONTAINER or (subcls or 0) ~= 0) then special = true end
+      end
+    end
     if id then
       if n == 0 then unsure = true                           -- bag info not loaded yet
-      elseif bagType and bagType ~= 0 then                    -- special bag: not a candidate
+      elseif special then                                     -- special bag: not a candidate
       else sizes[#sizes + 1] = n; ns.db.bagSlots[id] = n end
     elseif n > 0 then
-      if not (bagType and bagType ~= 0) then sizes[#sizes + 1] = n end
+      if not special then sizes[#sizes + 1] = n end
     elseif inv and GetInventoryItemID then
       sizes[#sizes + 1] = 0                                   -- really empty
     else
       unsure = true
     end
   end
-  if not unsure then c.bagSizes = sizes end
+  if not unsure then c.bagSizes, c.bagSizesV = sizes, 2 end
   c.bagsSeen = ns.Now()
 end
 
